@@ -4,8 +4,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/soyuz43/prbuddy-go/internal/hooks"
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -25,15 +28,24 @@ var removeCmd = &cobra.Command{
 			fmt.Println("[PRBuddy-Go] Removed the post-commit hook.")
 		}
 
-		// 2. Optional: Remove any configuration files or directories if applicable
-		// Example:
-		// configPath := ".prbuddy-config"
-		// err = os.RemoveAll(configPath)
-		// if err != nil {
-		//     fmt.Printf("[PRBuddy-Go] Error deleting config directory (%s): %v\n", configPath, err)
-		// } else {
-		//     fmt.Printf("[PRBuddy-Go] Deleted the config directory: %s\n", configPath)
-		// }
+		// 2. Remove the .git/pr_buddy_db directory
+		repoPath, err := utils.GetRepoPath()
+		if err != nil {
+			fmt.Printf("[PRBuddy-Go] Error retrieving repository path: %v\n", err)
+			return
+		}
+
+		prBuddyDBPath := filepath.Join(repoPath, ".git", "pr_buddy_db")
+		if _, err := os.Stat(prBuddyDBPath); !os.IsNotExist(err) {
+			err = os.RemoveAll(prBuddyDBPath)
+			if err != nil {
+				fmt.Printf("[PRBuddy-Go] Error deleting pr_buddy_db directory: %v\n", err)
+			} else {
+				fmt.Printf("[PRBuddy-Go] Deleted directory: %s\n", prBuddyDBPath)
+			}
+		} else {
+			fmt.Printf("[PRBuddy-Go] Directory does not exist: %s\n", prBuddyDBPath)
+		}
 
 		fmt.Println("[PRBuddy-Go] Successfully removed all traces of PRBuddy-Go from the repository.")
 	},

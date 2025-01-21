@@ -49,7 +49,7 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 **Code Changes:**
 %s
 
-Please provide a comprehensive PR title and description that explain the changes, and adheres to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and the other components of the response with three backticks and append the draft PR in code blocks.
+Please provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks and append the draft PR in code blocks.
 `, commitMessage, diffs)
 
 	response, err := GetLLMResponse(prompt, "You are a helpful assistant.")
@@ -71,9 +71,9 @@ These are the git diffs for the repository:
 ---
 !TASK::
 1. Provide a meticulous natural language summary of each of the changes. Do so by file. Describe each change made in full.
-2. List and separate changes for each file changed using numbered points, and using markdown standards in formatting.
+2. List and separate changes for each file changed using numbered points and markdown formatting.
 3. Only describe the changes explicitly present in the diffs. Do not infer, speculate, or invent additional content.
-4. Focus on helping the developer reorient themselves and where they left off.
+4. Focus on helping the developer reorient themselves and understand where they left off.
 `, gitDiffs)
 
 	// Call the LLM to generate the summary
@@ -83,13 +83,6 @@ These are the git diffs for the repository:
 	}
 
 	return summary.Message.Content, nil
-}
-
-// EmbedText obtains an embedding from Ollama-based API for a given text
-func EmbedText(text string) ([]float64, error) {
-	// Implementation depends on the chroma-go library or your embedding service
-	// Placeholder for embedding logic
-	return nil, fmt.Errorf("EmbedText not implemented")
 }
 
 // GetLLMResponse interacts with Ollama's chat endpoint to get a response from the LLM
