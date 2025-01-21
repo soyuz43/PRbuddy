@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 
@@ -12,9 +13,20 @@ import (
 // ExecuteGitCommand runs a git command and returns its output
 func ExecuteGitCommand(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
-	output, err := cmd.CombinedOutput()
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
 	if err != nil {
 		return "", errors.Wrapf(err, "git command failed: git %s", strings.Join(args, " "))
 	}
-	return strings.TrimSpace(string(output)), nil
+	return strings.TrimSpace(out.String()), nil
+}
+
+// GetRepoPath retrieves the top-level directory of the current Git repository
+func GetRepoPath() (string, error) {
+	repoPath, err := ExecuteGitCommand("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return repoPath, nil
 }
