@@ -4,9 +4,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
-	"github.com/soyuz43/prbuddy-go/internal/database"
 	"github.com/soyuz43/prbuddy-go/internal/hooks"
 	"github.com/spf13/cobra"
 )
@@ -14,37 +12,30 @@ import (
 // removeCmd represents the remove command
 var removeCmd = &cobra.Command{
 	Use:   "remove",
-	Short: "Remove PRBuddy from the repository.",
-	Long:  `Deletes the prbuddy.db file, removes the post-commit hook, and cleans up other traces of PRBuddy.`,
+	Short: "Remove PRBuddy-Go from the repository.",
+	Long:  `Deletes Git hooks and cleans up other traces of PRBuddy-Go from the repository.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("[prbuddy-go] Running remove command...")
+		fmt.Println("[PRBuddy-Go] Running remove command...")
 
-		// 1. Delete the database
-		err := database.DeleteDatabase("prbuddy.db")
+		// 1. Remove the post-commit hook
+		err := hooks.RemovePostCommitHook()
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error deleting database: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error removing post-commit hook: %v\n", err)
 		} else {
-			fmt.Println("[prbuddy-go] Deleted the database file: prbuddy.db")
+			fmt.Println("[PRBuddy-Go] Removed the post-commit hook.")
 		}
 
-		// 2. Remove the post-commit hook
-		err = hooks.RemovePostCommitHook()
-		if err != nil {
-			fmt.Printf("[prbuddy-go] Error removing post-commit hook: %v\n", err)
-		} else {
-			fmt.Println("[prbuddy-go] Removed the post-commit hook.")
-		}
+		// 2. Optional: Remove any configuration files or directories if applicable
+		// Example:
+		// configPath := ".prbuddy-config"
+		// err = os.RemoveAll(configPath)
+		// if err != nil {
+		//     fmt.Printf("[PRBuddy-Go] Error deleting config directory (%s): %v\n", configPath, err)
+		// } else {
+		//     fmt.Printf("[PRBuddy-Go] Deleted the config directory: %s\n", configPath)
+		// }
 
-		// 3. Remove ChromaDB storage directory
-		chromaDBPath := "chromadb_storage"
-		err = os.RemoveAll(chromaDBPath)
-		if err != nil {
-			fmt.Printf("[prbuddy-go] Error deleting ChromaDB storage directory (%s): %v\n", chromaDBPath, err)
-		} else {
-			fmt.Printf("[prbuddy-go] Deleted the ChromaDB storage directory: %s\n", chromaDBPath)
-		}
-
-		fmt.Println("[prbuddy-go] Successfully removed all traces of PRBuddy from the repository.")
+		fmt.Println("[PRBuddy-Go] Successfully removed all traces of PRBuddy-Go from the repository.")
 	},
 }
 

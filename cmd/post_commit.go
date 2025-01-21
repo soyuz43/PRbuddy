@@ -15,29 +15,32 @@ var postCommitCmd = &cobra.Command{
 	Short: "Handle the post-commit hook.",
 	Long:  `Generates a draft pull request based on the latest commit.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("[prbuddy-go] Running post-commit logic...")
+		fmt.Println("[PRBuddy-Go] Running post-commit logic...")
 
 		// 1. Generate a draft PR from the latest commit
 		commitMessage, diffs, err := llm.GeneratePreDraftPR()
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error generating pre-draft PR: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error generating pre-draft PR: %v\n", err)
+			return
+		}
+
+		if diffs == "" {
+			fmt.Println("[PRBuddy-Go] No changes detected. No pull request draft generated.")
 			return
 		}
 
 		// 2. Generate draft PR via LLM
 		draftPR, err := llm.GenerateDraftPR(commitMessage, diffs)
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error generating draft PR: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error generating draft PR: %v\n", err)
 			return
 		}
-
-		// Note: Embedding and ChromaDB querying steps have been removed.
 
 		// 3. Display the draft PR
 		fmt.Println("\n**Draft PR Generated:**")
 		fmt.Println(draftPR)
 
-		fmt.Println("\n[prbuddy-go] Post-commit processing complete.")
+		fmt.Println("\n[PRBuddy-Go] Post-commit processing complete.")
 	},
 }
 

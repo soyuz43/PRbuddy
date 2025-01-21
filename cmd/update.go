@@ -5,62 +5,66 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/soyuz43/prbuddy-go/internal/database"
-	"github.com/soyuz43/prbuddy-go/internal/github"
+	"github.com/soyuz43/prbuddy-go/internal/llm"
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Fetch and process new merged pull requests from the remote repository.",
-	Long:  `Fetches new merged pull requests since the tool was first initialized and stores their details in the SQLite database.`,
+	Short: "Generate a pull request draft based on the latest changes.",
+	Long:  `Parses Git diffs (staged, unstaged, and untracked) and generates a pull request draft.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("[prbuddy-go] Running update command...")
+		fmt.Println("[PRBuddy-Go] Running update command...")
 
-		// 1. Fetch GitHub remote URL
-		remoteURL, err := github.GetRemoteURL()
+		// 1. Gather local diffs (staged, unstaged, and untracked)
+		stagedDiff, err := utils.ExecuteGitCommand("diff", "--cached", "HEAD")
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error fetching remote URL: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error getting staged diff: %v\n", err)
 			return
 		}
-
-		// 2. Initialize GitHub client
-		pulls, err := github.FetchPullRequests(remoteURL)
+		unstagedDiff, err := utils.ExecuteGitCommand("diff", "HEAD")
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error fetching pull requests: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error getting unstaged diff: %v\n", err)
 			return
 		}
-		if len(pulls) == 0 {
-			fmt.Println("[prbuddy-go] No pull requests found in the repository.")
-			return
-		}
-
-		// 3. Initialize the database
-		db, err := database.NewDatabase("prbuddy.db")
+		untrackedFiles, err := utils.ExecuteGitCommand("ls-files", "--others", "--exclude-standard")
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error initializing database: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error getting untracked files: %v\n", err)
 			return
 		}
-		defer db.Close()
 
-		// 4. Process and store new merged PRs
-		for _, pr := range pulls {
-			// Convert to database.PullRequest
-			dbPR := database.ConvertGitHubPRToDatabasePR(&pr) // Pass pointer
-
-			// Insert PR into the database
-			err := db.InsertPullRequest(dbPR)
-			if err != nil {
-				fmt.Printf("[prbuddy-go] Error inserting PR #%d: %v\n", pr.Number, err)
-				continue
-			}
-
-			// Note: Embedding and ChromaDB storage steps have been removed.
-			// If you have additional processing, add it here.
+		// Combine the diffs into a single string
+		fullDiffs := ""
+		if stagedDiff != "" {
+			fullDiffs += fmt.Sprintf("--- Staged Changes ---\n%s\n\n", stagedDiff)
+		}
+		if unstagedDiff != "" {
+			fullDiffs += fmt.Sprintf("--- Unstaged Changes ---\n%s\n\n", unstagedDiff)
+		}
+		if untrackedFiles != "" {
+			fullDiffs += fmt.Sprintf("--- Untracked Files ---\n%s\n\n", untrackedFiles)
 		}
 
-		fmt.Println("[prbuddy-go] Successfully updated with new merged pull requests.")
+		// If there's nothing to show, we stop
+		if fullDiffs == "" {
+			fmt.Println("[PRBuddy-Go] No changes detected. No pull request draft generated.")
+			return
+		}
+
+		// 2. Generate PR draft via LLM
+		draftPR, err := llm.GenerateDraftPR(fullDiffs, "")
+		if err != nil {
+			fmt.Printf("[PRBuddy-Go] Error generating PR draft: %v\n", err)
+			return
+		}
+
+		// 3. Display the draft PR
+		fmt.Println("\n**Pull Request Draft Generated:**")
+		fmt.Println(draftPR)
+
+		fmt.Println("\n[PRBuddy-Go] Update process complete.")
 	},
 }
 
