@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// InstallPostCommitHook installs the post-commit Git hook
 func InstallPostCommitHook() error {
 	repoPath, err := getRepoPath()
 	if err != nil {
@@ -24,28 +23,36 @@ func InstallPostCommitHook() error {
 	hookContent := `#!/bin/bash
 echo "[prbuddy-go] Detected commit. Running post-commit hook..."
 
-# Check if the PRBuddy extension is installed
-if [ -f ".git/prbuddy/.extension-installed" ]; then
-    # Try to activate the VS Code extension
-    if command -v code &> /dev/null; then
-        code --activate-extension prbuddy.extension
-    fi
+EXTENSION_DIR="$(git rev-parse --git-dir)/prbuddy"
+PORT_FILE="$EXTENSION_DIR/.prbuddy_port"
 
-    # Wait briefly for the extension to initialize
-    sleep 1
+# Check for extension installation
+if [ -f "$EXTENSION_DIR/.extension-installed" ]; then
+  # Start server in background if not running
+  prbuddy-go serve --background 2>/dev/null &
+  
+  # Wait briefly for server initialization
+  sleep 0.5
+  
+  # Check for port file existence
+  if [ -f "$PORT_FILE" ]; then
+    # Server is running - let backend handle extension communication
+    prbuddy-go post-commit --extension-active
+  else
+    # Fallback to terminal output
+    prbuddy-go post-commit
+  fi
+else
+  # Direct terminal output without extension
+  prbuddy-go post-commit
 fi
-
-# Run the PRBuddy post-commit command
-prbuddy post-commit
 `
 
-	// Ensure the hooks directory exists
 	err = os.MkdirAll(hooksDir, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create hooks directory: %w", err)
 	}
 
-	// Write the post-commit hook
 	err = os.WriteFile(postCommitPath, []byte(hookContent), 0755)
 	if err != nil {
 		return fmt.Errorf("failed to write post-commit hook: %w", err)
