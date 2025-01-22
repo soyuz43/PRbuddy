@@ -23,6 +23,19 @@ func InstallPostCommitHook() error {
 
 	hookContent := `#!/bin/bash
 echo "[prbuddy-go] Detected commit. Running post-commit hook..."
+
+# Check if the PRBuddy extension is installed
+if [ -f ".git/prbuddy/.extension-installed" ]; then
+    # Try to activate the VS Code extension
+    if command -v code &> /dev/null; then
+        code --activate-extension prbuddy.extension
+    fi
+
+    # Wait briefly for the extension to initialize
+    sleep 1
+fi
+
+# Run the PRBuddy post-commit command
 prbuddy post-commit
 `
 

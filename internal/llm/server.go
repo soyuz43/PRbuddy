@@ -3,12 +3,76 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// StartServer starts the HTTP server with dynamic port allocation
+func StartServer() error {
+	// Create a listener with dynamic port selection
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return fmt.Errorf("failed to start server: %w", err)
+	}
+
+	// Get the allocated port
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// Write the port to .git/.prbuddy_port
+	if err := utils.WritePortFile(port); err != nil {
+		return fmt.Errorf("failed to write port file: %w", err)
+	}
+
+	// Create HTTP server
+	server := &http.Server{
+		Addr:    fmt.Sprintf("localhost:%d", port),
+		Handler: nil, // Use http.DefaultServeMux
+	}
+
+	// Graceful shutdown handling
+	shutdownChan := make(chan os.Signal, 1)
+	signal.Notify(shutdownChan, os.Interrupt, syscall.SIGTERM)
+
+	// Inactivity timeout
+	inactivityTimeout := 10 * time.Minute
+	timeoutTimer := time.NewTimer(inactivityTimeout)
+
+	go func() {
+		<-shutdownChan
+		fmt.Println("\nShutting down server...")
+		_ = server.Shutdown(context.Background())
+	}()
+
+	go func() {
+		<-timeoutTimer.C
+		fmt.Println("Server inactive for too long. Shutting down...")
+		_ = server.Shutdown(context.Background())
+	}()
+
+	// Start the server
+	fmt.Printf("Starting PRBuddy server on port %d...\n", port)
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", err)
+	}
+
+	// Clean up on shutdown
+	if err := utils.DeletePortFile(); err != nil {
+		fmt.Printf("Warning: failed to delete port file: %v\n", err)
+	}
+
+	fmt.Println("Server shutdown complete.")
+	return nil
+}
 
 func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -20,7 +84,7 @@ func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := HandleQuickAssistMessage(request.Query)
+	response, err := HandleExtensionQuickAssist(request.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
