@@ -143,20 +143,6 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func enableCORS(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == "OPTIONS" {
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
-}
-
 func WhatHandler(w http.ResponseWriter, r *http.Request) {
 	summary, err := GenerateWhatSummary()
 	if err != nil {
@@ -178,15 +164,21 @@ var ServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start API server for VS Code extension",
 	Run: func(cmd *cobra.Command, args []string) {
-		http.HandleFunc("/quick-assist", enableCORS(QuickAssistHandler))
-		http.HandleFunc("/save-draft", enableCORS(SaveDraftHandler))
-		http.HandleFunc("/load-draft", enableCORS(LoadDraftHandler))
-		http.HandleFunc("/what", enableCORS(WhatHandler))
+		// Check extension installation first
+		installed, err := utils.CheckExtensionInstalled()
+		if err != nil {
+			fmt.Printf("Extension check failed: %v\n", err)
+			os.Exit(1)
+		}
+		if !installed {
+			fmt.Println("Extension not installed. Server not started.")
+			return
+		}
 
-		port := "7743"
-		fmt.Printf("Starting PRBuddy API server on port %s...\n", port)
-		if err := http.ListenAndServe(":"+port, nil); err != nil {
+		// Start server with dynamic port
+		if err := StartServer(); err != nil {
 			fmt.Printf("Failed to start server: %v\n", err)
+			os.Exit(1)
 		}
 	},
 }

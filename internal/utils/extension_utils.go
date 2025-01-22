@@ -5,43 +5,63 @@ package utils
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
 )
 
 const (
-	extensionIndicatorFile = ".git/prbuddy/.extension-installed"
+	extensionIndicatorFile = ".extension-installed"
+	prbuddyDir             = "prbuddy"
 )
 
-// CheckExtensionInstalled checks if the VS Code extension is installed
+// CheckExtensionInstalled verifies if the extension is installed
 func CheckExtensionInstalled() (bool, error) {
 	repoPath, err := GetRepoPath()
 	if err != nil {
 		return false, fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	indicatorPath := filepath.Join(repoPath, extensionIndicatorFile)
+	indicatorPath := filepath.Join(repoPath, ".git", "prbuddy", ".extension-installed")
 	if _, err := os.Stat(indicatorPath); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("failed to check extension indicator file: %w", err)
+		return false, fmt.Errorf("error checking extension status: %w", err)
 	}
 
 	return true, nil
 }
 
-// ActivateVSCodeExtension attempts to activate the VS Code extension
-func ActivateVSCodeExtension() error {
-	cmd := exec.Command("code", "--activate-extension", "prbuddy.extension")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to activate VS Code extension: %w", err)
+// CreateExtensionIndicator creates the extension installation marker
+func CreateExtensionIndicator() error {
+	repoPath, err := GetRepoPath()
+	if err != nil {
+		return fmt.Errorf("failed to get repository path: %w", err)
 	}
+
+	prbuddyPath := filepath.Join(repoPath, ".git", prbuddyDir)
+	if err := os.MkdirAll(prbuddyPath, 0755); err != nil {
+		return fmt.Errorf("failed to create prbuddy directory: %w", err)
+	}
+
+	indicatorPath := filepath.Join(prbuddyPath, extensionIndicatorFile)
+	if err := os.WriteFile(indicatorPath, []byte(""), 0644); err != nil {
+		return fmt.Errorf("failed to create extension indicator: %w", err)
+	}
+
 	return nil
 }
 
-// WaitForExtensionInitialization waits briefly for the extension to initialize
-func WaitForExtensionInitialization() {
-	time.Sleep(1 * time.Second)
+// RemoveExtensionIndicator removes the extension installation marker
+func RemoveExtensionIndicator() error {
+	repoPath, err := GetRepoPath()
+	if err != nil {
+		return fmt.Errorf("failed to get repository path: %w", err)
+	}
+
+	indicatorPath := filepath.Join(repoPath, ".git", prbuddyDir, extensionIndicatorFile)
+	if err := os.Remove(indicatorPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove extension indicator: %w", err)
+	}
+
+	return nil
 }
