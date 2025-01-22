@@ -6,16 +6,85 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// -------------------------------------------
+// Global model config in memory
+// -------------------------------------------
+var (
+	modelMutex     sync.RWMutex
+	activeLLMModel string
+)
+
+// fetchOllamaModels queries Ollama at /api/ps to list currently loaded models.
+func fetchOllamaModels() ([]map[string]interface{}, error) {
+	// Hard-coded to the default endpoint (http://localhost:11434)
+	// or you could also store endpoint in a global variable if it's dynamic.
+	resp, err := http.Get("http://localhost:11434/api/ps")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Ollama /api/ps: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama /api/ps returned status %d", resp.StatusCode)
+	}
+
+	bodyData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Ollama /api/ps response: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(bodyData, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Ollama /api/ps: %w", err)
+	}
+
+	// The response structure is:
+	// {
+	//   "models": [
+	//       { "name": "mistral:latest", "model": "mistral:latest", ...},
+	//       ...
+	//   ]
+	// }
+	modelsRaw, ok := result["models"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected /api/ps JSON format (no 'models' array)")
+	}
+
+	var models []map[string]interface{}
+	for _, item := range modelsRaw {
+		if m, valid := item.(map[string]interface{}); valid {
+			models = append(models, m)
+		}
+	}
+	return models, nil
+}
+
+// setActiveModel updates the in-memory "activeLLMModel"
+func setActiveModel(model string) {
+	modelMutex.Lock()
+	defer modelMutex.Unlock()
+	activeLLMModel = model
+}
+
+// getActiveModel reads the in-memory "activeLLMModel"
+func getActiveModel() string {
+	modelMutex.RLock()
+	defer modelMutex.RUnlock()
+	return activeLLMModel
+}
 
 const (
 	defaultHost              = "localhost"
@@ -67,6 +136,12 @@ func registerHandlers(router *http.ServeMux) {
 
 	// Summaries / 'what' functionality
 	router.HandleFunc("/what", WhatHandler)
+
+	// -------------------------
+	//  NEW: Model Management
+	// -------------------------
+	router.HandleFunc("/extension/models", ListModelsHandler)
+	router.HandleFunc("/extension/model", SetModelHandler)
 }
 
 func manageServerLifecycle(server *http.Server, listener net.Listener, timeout time.Duration) error {
@@ -254,6 +329,66 @@ func WhatHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"summary": summary})
 }
 
+// ----------------------
+//   NEW: Model Endpoints
+// ----------------------
+
+// ListModelsHandler returns the list of models Ollama has loaded
+// GET /extension/models
+func ListModelsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	models, err := fetchOllamaModels()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list models: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models)
+}
+
+// SetModelHandler updates the in-memory model that PRBuddy-Go will use
+// POST /extension/model
+// Request JSON format:
+//
+//	{
+//	  "model": "mistral:latest"
+//	}
+func SetModelHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Model == "" {
+		http.Error(w, "Missing 'model' field", http.StatusBadRequest)
+		return
+	}
+
+	// Optionally, you can confirm that 'body.Model' is in the list from fetchOllamaModels()
+	setActiveModel(body.Model)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":       "model updated",
+		"active_model": getActiveModel(),
+	})
+}
+
+// ----------------------------------
+// ServeCmd for CLI usage
+// ----------------------------------
 var ServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start API server for extension integration",
