@@ -72,6 +72,7 @@ func runPostCommit(cmd *cobra.Command, args []string) {
 
 	fmt.Println("\n[PRBuddy-Go] Post-commit processing complete.")
 }
+
 func generateDraftPR() (string, string, string, error) {
 	branchName, err := utils.ExecuteGitCommand("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
