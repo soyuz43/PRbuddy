@@ -8,12 +8,28 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
+
+// Global conversation manager
+var (
+	conversationManager = NewConversationManager()
+)
+
+// Initialize cleanup routine for in-memory conversations
+func init() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			// Remove conversations with no activity in the last 30 minutes
+			conversationManager.Cleanup(30 * time.Minute)
+		}
+	}()
+}
 
 // Message represents a chat message for LLM interactions
 type Message struct {
@@ -28,12 +44,52 @@ type LLMResponse struct {
 	} `json:"message"`
 }
 
-var (
-	quickAssistContext []Message
-	contextMutex       sync.Mutex
-)
+// ---------------------------------------------------------
+//  Quick Assist & Extension Flow
+// ---------------------------------------------------------
 
-// HandleCLIQuickAssist handles CLI requests (stateless)
+// HandleExtensionQuickAssist handles extension requests with conversation context
+// If ephemeral == true, the conversation is only kept in-memory (no disk saving).
+// conversationID: optional ID. If not found and ephemeral, a new ephemeral conversation is created.
+func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("no user message provided")
+	}
+
+	conv, exists := conversationManager.GetConversation(conversationID)
+	if !exists {
+		// Create a new ephemeral conversation if no ID was provided or not found
+		if conversationID == "" {
+			conversationID = fmt.Sprintf("ephemeral-%d", time.Now().UnixNano())
+		}
+
+		// For ephemeral quick assist, we typically have no initial diff
+		conv = conversationManager.StartConversation(conversationID, "", ephemeral)
+	}
+
+	// Add user message
+	conv.AddMessage("user", input)
+
+	// Build context with diff/truncation logic (if any)
+	context := conv.BuildContext()
+
+	// Get response from LLM
+	response, err := GetChatResponse(context)
+	if err != nil {
+		return "", err
+	}
+
+	// Add assistant response
+	conv.AddMessage("assistant", response)
+
+	return response, nil
+}
+
+// ---------------------------------------------------------
+//  CLI QuickAssist (Stateless) - Example usage
+// ---------------------------------------------------------
+
+// HandleCLIQuickAssist handles CLI requests (purely stateless for quick usage)
 func HandleCLIQuickAssist(input string) (string, error) {
 	response, err := GetChatResponse([]Message{
 		{Role: "system", Content: "You are a helpful assistant."},
@@ -45,31 +101,54 @@ func HandleCLIQuickAssist(input string) (string, error) {
 	return response, nil
 }
 
-// HandleExtensionQuickAssist handles extension requests (stateful)
-func HandleExtensionQuickAssist(input string) (string, error) {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
+// ---------------------------------------------------------
+//  PR Drafting Conversation
+// ---------------------------------------------------------
 
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "user",
-		Content: input,
-	})
+// StartPRConversation initiates a new PR conversation with a commit message and diffs
+func StartPRConversation(commitMessage, diffs string) (string, string, error) {
+	// Generate conversation ID
+	conversationID := fmt.Sprintf("pr-%d", time.Now().UnixNano())
 
-	response, err := GetChatResponse(quickAssistContext)
+	// Create new conversation (persistent - ephemeral=false)
+	conv := conversationManager.StartConversation(conversationID, diffs, false)
+
+	// Generate initial prompt for the PR
+	prompt := fmt.Sprintf(`
+You are an assistant designed to generate a detailed pull request (PR) description based on the following commit message and code changes.
+
+**Commit Message:**
+%s
+
+**Code Changes:**
+%s
+
+Please provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks and append the draft PR in code blocks.
+`, commitMessage, diffs)
+
+	// Add initial user message
+	conv.AddMessage("user", prompt)
+
+	// Get initial response from LLM
+	response, err := GetChatResponse(conv.BuildContext())
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "assistant",
-		Content: response,
-	})
+	// Add assistant response
+	conv.AddMessage("assistant", response)
 
-	return response, nil
+	return conversationID, response, nil
 }
 
-// GeneratePreDraftPR generates the pre-draft PR based on the latest commit
-func GeneratePreDraftPR() (commitMessage string, diffs string, err error) {
+// ContinuePRConversation continues an existing PR conversation
+func ContinuePRConversation(conversationID, input string) (string, error) {
+	// For PR conversations, ephemeral=false, so we skip that param
+	return HandleExtensionQuickAssist(conversationID, input, false)
+}
+
+// GeneratePreDraftPR fetches the latest commit message and diffs
+func GeneratePreDraftPR() (string, string, error) {
 	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get latest commit message")
@@ -83,7 +162,7 @@ func GeneratePreDraftPR() (commitMessage string, diffs string, err error) {
 	return commitMsg, diff, nil
 }
 
-// GenerateDraftPR uses the LLM's chat endpoint to generate a draft PR
+// GenerateDraftPR uses the LLM's chat endpoint to generate a PR draft (stateless)
 func GenerateDraftPR(commitMessage, diffs string) (string, error) {
 	prompt := fmt.Sprintf(`
 You are an assistant designed to generate a detailed pull request (PR) description based on the following commit message and code changes.
@@ -138,7 +217,11 @@ These are the git diffs for the repository:
 	})
 }
 
-// GetChatResponse handles multi-turn conversations with the LLM
+// ---------------------------------------------------------
+//  Low-Level LLM Communication
+// ---------------------------------------------------------
+
+// GetChatResponse sends messages to the LLM endpoint and returns the assistant's text
 func GetChatResponse(messages []Message) (string, error) {
 	model, endpoint := GetLLMConfig()
 
@@ -179,7 +262,7 @@ func GetChatResponse(messages []Message) (string, error) {
 	return llmResp.Message.Content, nil
 }
 
-// GetLLMConfig gets current model configuration
+// GetLLMConfig gets the current model and endpoint from environment variables
 func GetLLMConfig() (string, string) {
 	model := os.Getenv("PRBUDDY_LLM_MODEL")
 	endpoint := os.Getenv("PRBUDDY_LLM_ENDPOINT")

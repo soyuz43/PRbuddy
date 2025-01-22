@@ -1,3 +1,5 @@
+// internal/llm/draft_context.go
+
 package llm
 
 import (
@@ -10,6 +12,7 @@ import (
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
+// SaveDraftContext saves conversation messages to disk for a specific branch/commit
 func SaveDraftContext(branchName, commitHash string, context []Message) error {
 	repoPath, err := utils.GetRepoPath()
 	if err != nil {
@@ -37,7 +40,7 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 	return nil
 }
 
-// LoadDraftContext retrieves saved conversation context
+// LoadDraftContext retrieves saved conversation context for a specific branch/commit
 func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 	repoPath, err := utils.GetRepoPath()
 	if err != nil {

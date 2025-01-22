@@ -1,3 +1,5 @@
+## Post Commit Logic Flow
+
 ```mermaid
 graph TD
     A[Git Commit] --> B[Post-Commit Hook]
@@ -12,3 +14,27 @@ graph TD
     H --> J[Save Logs]
     I --> J
 ``` 
+
+
+## Conversational Flow
+```mermaid
+sequenceDiagram
+    participant D as Developer
+    participant E as Extension
+    participant S as Server
+    participant L as LLM
+
+    D->>E: Commits code
+    E->>S: Start PR conversation
+    S->>L: Initial prompt with full diff
+    L->>S: Initial draft PR
+    S->>E: Return draft + conversation ID
+    E->>D: Show draft PR
+
+    D->>E: Request clarification
+    E->>S: Continue conversation (ID + question)
+    S->>L: Contextual prompt
+    L->>S: Clarification response
+    S->>E: Return response
+    E->>D: Show clarification
+```

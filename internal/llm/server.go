@@ -55,9 +55,17 @@ func StartServer(cfg ServerConfig) error {
 }
 
 func registerHandlers(router *http.ServeMux) {
+	// Quick Assist (ephemeral or short-lived) conversation
 	router.HandleFunc("/extension/quick-assist", QuickAssistHandler)
+
+	// Endpoint to clear ephemeral conversation context
+	router.HandleFunc("/extension/quick-assist/clear", QuickAssistClearHandler)
+
+	// Draft context management
 	router.HandleFunc("/extension/drafts", SaveDraftHandler)
 	router.HandleFunc("/extension/drafts/load", LoadDraftHandler)
+
+	// Summaries / 'what' functionality
 	router.HandleFunc("/what", WhatHandler)
 }
 
@@ -98,23 +106,36 @@ func manageServerLifecycle(server *http.Server, listener net.Listener, timeout t
 	return nil
 }
 
-// Handlers implementation
+// -------------------
+//    HTTP Handlers
+// -------------------
+
+// QuickAssistHandler handles ephemeral or short-lived user queries
+// POST /extension/quick-assist
+// Request JSON format:
+//
+//	{
+//	  "conversationId": "abc123",  optional; if absent, a new ephemeral conversation is created
+//	  "message": "user's question",
+//	  "ephemeral": true
+//	}
 func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var request struct {
-		Query string `json:"query"`
+	var req struct {
+		ConversationID string `json:"conversationId"`
+		Message        string `json:"message"`
+		Ephemeral      bool   `json:"ephemeral"`
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 
-	response, err := HandleExtensionQuickAssist(request.Query)
+	response, err := HandleExtensionQuickAssist(req.ConversationID, req.Message, req.Ephemeral)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -124,7 +145,47 @@ func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"response": response})
 }
 
+// QuickAssistClearHandler allows a client (e.g., VSCode extension)
+// to clear an ephemeral conversation from memory
+// POST /extension/quick-assist/clear
+// Request JSON format:
+//
+//	{
+//	  "conversationId": "abc123"
+//	}
+func QuickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ConversationID string `json:"conversationId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+
+	if req.ConversationID == "" {
+		http.Error(w, "conversationId is required", http.StatusBadRequest)
+		return
+	}
+
+	conversationManager.RemoveConversation(req.ConversationID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+// SaveDraftHandler handles saving a conversation/draft context to disk
+// POST /extension/drafts
 func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var request struct {
 		Branch   string    `json:"branch"`
 		Commit   string    `json:"commit"`
@@ -145,7 +206,14 @@ func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
+// LoadDraftHandler retrieves a saved conversation/draft context from disk
+// POST /extension/drafts/load
 func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var request struct {
 		Branch string `json:"branch"`
 		Commit string `json:"commit"`
@@ -169,6 +237,8 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// WhatHandler - Summarize "what changed"
+// GET or POST /what
 func WhatHandler(w http.ResponseWriter, r *http.Request) {
 	summary, err := GenerateWhatSummary()
 	if err != nil {
