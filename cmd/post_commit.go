@@ -36,28 +36,27 @@ var postCommitCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(postCommitCmd) // Ensure proper registration
+	rootCmd.AddCommand(postCommitCmd)
 }
 
 func runPostCommit(cmd *cobra.Command, args []string) {
 	fmt.Println("[PRBuddy-Go] Running post-commit logic...")
 
-	repoPath, err := utils.GetRepoPath()
+	// Get extension status
+	extensionInstalled, err := utils.CheckExtensionInstalled()
 	if err != nil {
-		fmt.Printf("[PRBuddy-Go] Error getting repo path: %v\n", err)
-		return
+		fmt.Printf("[PRBuddy-Go] Extension check error: %v\n", err)
 	}
 
-	extensionIndicator := filepath.Join(repoPath, ".git", "prbuddy", ".extension-installed")
-	_, extensionInstalled := os.Stat(extensionIndicator)
-
+	// Generate draft PR
 	branchName, commitHash, draftPR, err := generateDraftPR()
 	if err != nil {
 		fmt.Printf("[PRBuddy-Go] Error generating draft: %v\n", err)
 		return
 	}
 
-	if extensionInstalled == nil {
+	// Handle communication based on extension presence
+	if extensionInstalled {
 		if err := communicateWithExtension(branchName, commitHash, draftPR); err != nil {
 			handleExtensionFailure(draftPR, err)
 		}
@@ -66,6 +65,7 @@ func runPostCommit(cmd *cobra.Command, args []string) {
 		fmt.Println(draftPR)
 	}
 
+	// Save logs regardless of output method
 	if err := saveConversationLogs(branchName, commitHash, "Generated draft PR successfully."); err != nil {
 		fmt.Printf("[PRBuddy-Go] Error saving logs: %v\n", err)
 	}

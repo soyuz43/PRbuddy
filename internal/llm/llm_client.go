@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 // Message represents a chat message for LLM interactions
@@ -71,12 +70,12 @@ func HandleExtensionQuickAssist(input string) (string, error) {
 
 // GeneratePreDraftPR generates the pre-draft PR based on the latest commit
 func GeneratePreDraftPR() (commitMessage string, diffs string, err error) {
-	commitMsg, err := executeGitCommand("git", "log", "-1", "--pretty=%B")
+	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get latest commit message")
 	}
 
-	diff, err := executeGitCommand("git", "diff", "HEAD~1", "HEAD")
+	diff, err := utils.GetDiffs(utils.DiffSinceLastCommit)
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get git diff")
 	}
@@ -109,8 +108,17 @@ Please provide a comprehensive PR title and description that explain the changes
 	return response, nil
 }
 
-// GenerateSummary generates a summary of git diffs using the LLM
-func GenerateSummary(gitDiffs string) (string, error) {
+// GenerateWhatSummary generates a summary of git diffs using the LLM
+func GenerateWhatSummary() (string, error) {
+	diffs, err := utils.GetDiffs(utils.DiffAllLocalChanges)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diffs: %w", err)
+	}
+
+	if diffs == "" {
+		return "No changes detected since the last commit.", nil
+	}
+
 	prompt := fmt.Sprintf(`
 These are the git diffs for the repository:
 
@@ -122,17 +130,12 @@ These are the git diffs for the repository:
 2. List and separate changes for each file changed using numbered points and markdown formatting.
 3. Only describe the changes explicitly present in the diffs. Do not infer, speculate, or invent additional content.
 4. Focus on helping the developer reorient themselves and understand where they left off.
-`, gitDiffs)
+`, diffs)
 
-	summary, err := GetChatResponse([]Message{
+	return GetChatResponse([]Message{
 		{Role: "system", Content: "You are a helpful assistant."},
 		{Role: "user", Content: prompt},
 	})
-	if err != nil {
-		return "", errors.Wrap(err, "failed to generate summary from LLM")
-	}
-
-	return summary, nil
 }
 
 // GetChatResponse handles multi-turn conversations with the LLM
@@ -189,15 +192,4 @@ func GetLLMConfig() (string, string) {
 	}
 
 	return model, endpoint
-}
-
-func executeGitCommand(args ...string) (string, error) {
-	cmd := exec.Command(args[0], args[1:]...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return "", errors.Wrapf(err, "git command failed: %s", strings.Join(args, " "))
-	}
-	return strings.TrimSpace(out.String()), nil
 }
