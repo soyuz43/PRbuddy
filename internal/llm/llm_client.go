@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -35,9 +33,44 @@ var (
 	contextMutex       sync.Mutex
 )
 
+// HandleCLIQuickAssist handles CLI requests (stateless)
+func HandleCLIQuickAssist(input string) (string, error) {
+	response, err := GetChatResponse([]Message{
+		{Role: "system", Content: "You are a helpful assistant."},
+		{Role: "user", Content: input},
+	})
+	if err != nil {
+		return "", err
+	}
+	return response, nil
+}
+
+// HandleExtensionQuickAssist handles extension requests (stateful)
+func HandleExtensionQuickAssist(input string) (string, error) {
+	contextMutex.Lock()
+	defer contextMutex.Unlock()
+
+	quickAssistContext = append(quickAssistContext, Message{
+		Role:    "user",
+		Content: input,
+	})
+
+	response, err := GetChatResponse(quickAssistContext)
+	if err != nil {
+		return "", err
+	}
+
+	quickAssistContext = append(quickAssistContext, Message{
+		Role:    "assistant",
+		Content: response,
+	})
+
+	return response, nil
+}
+
 // GeneratePreDraftPR generates the pre-draft PR based on the latest commit
 func GeneratePreDraftPR() (commitMessage string, diffs string, err error) {
-	commitMsg, err := executeGitCommand("git", "log", "-1", "--pretty=%B")
+	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get latest commit message")
 	}
@@ -77,16 +110,6 @@ Please provide a comprehensive PR title and description that explain the changes
 
 // GenerateWhatSummary generates a summary of git diffs using the LLM
 func GenerateWhatSummary() (string, error) {
-	// Check if there are any commits first
-	commitCount, err := utils.ExecuteGitCommand("rev-list", "--count", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("error checking commits: %w", err)
-	}
-	if commitCount == "0" {
-		return "", fmt.Errorf("no commits found in the repository")
-	}
-
-	// Get all local changes
 	diffs, err := utils.GetDiffs(utils.DiffAllLocalChanges)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diffs: %w", err)
@@ -96,7 +119,6 @@ func GenerateWhatSummary() (string, error) {
 		return "No changes detected since the last commit.", nil
 	}
 
-	// Prepare the LLM prompt
 	prompt := fmt.Sprintf(`
 These are the git diffs for the repository:
 
@@ -110,16 +132,10 @@ These are the git diffs for the repository:
 4. Focus on helping the developer reorient themselves and understand where they left off.
 `, diffs)
 
-	// Get the summary from the LLM
-	summary, err := GetChatResponse([]Message{
+	return GetChatResponse([]Message{
 		{Role: "system", Content: "You are a helpful assistant."},
 		{Role: "user", Content: prompt},
 	})
-	if err != nil {
-		return "", errors.Wrap(err, "failed to generate summary from LLM")
-	}
-
-	return summary, nil
 }
 
 // GetChatResponse handles multi-turn conversations with the LLM
@@ -163,52 +179,6 @@ func GetChatResponse(messages []Message) (string, error) {
 	return llmResp.Message.Content, nil
 }
 
-// QuickAssist functions
-func StartQuickAssist() {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-	quickAssistContext = []Message{}
-}
-
-func HandleCLIQuickAssist(input string) (string, error) {
-	response, err := GetChatResponse([]Message{
-		{Role: "system", Content: "You are a helpful assistant."},
-		{Role: "user", Content: input},
-	})
-	if err != nil {
-		return "", err
-	}
-	return response, nil
-}
-
-func HandleExtensionQuickAssist(input string) (string, error) {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "user",
-		Content: input,
-	})
-
-	response, err := GetChatResponse(quickAssistContext)
-	if err != nil {
-		return "", err
-	}
-
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "assistant",
-		Content: response,
-	})
-
-	return response, nil
-}
-
-func ClearQuickAssist() {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-	quickAssistContext = []Message{}
-}
-
 // GetLLMConfig gets current model configuration
 func GetLLMConfig() (string, string) {
 	model := os.Getenv("PRBUDDY_LLM_MODEL")
@@ -222,15 +192,4 @@ func GetLLMConfig() (string, string) {
 	}
 
 	return model, endpoint
-}
-
-func executeGitCommand(args ...string) (string, error) {
-	cmd := exec.Command(args[0], args[1:]...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return "", errors.Wrapf(err, "git command failed: %s", strings.Join(args, " "))
-	}
-	return strings.TrimSpace(out.String()), nil
 }
