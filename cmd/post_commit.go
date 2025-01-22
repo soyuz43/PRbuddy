@@ -36,7 +36,7 @@ var postCommitCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(postCommitCmd) // Ensure proper registration
+	rootCmd.AddCommand(postCommitCmd)
 }
 
 func runPostCommit(cmd *cobra.Command, args []string) {
