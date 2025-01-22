@@ -5,9 +5,12 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/soyuz43/prbuddy-go/internal/llm"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
@@ -29,52 +32,118 @@ var postCommitCmd = &cobra.Command{
 	Use:   "post-commit",
 	Short: "Handle the post-commit hook.",
 	Long:  `Generates a draft pull request based on the latest commit and logs the conversation.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("[PRBuddy-Go] Running post-commit logic...")
-
-		branchName, err := utils.ExecuteGitCommand("rev-parse", "--abbrev-ref", "HEAD")
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error retrieving branch name: %v\n", err)
-			return
-		}
-
-		commitHash, err := utils.ExecuteGitCommand("rev-parse", "HEAD")
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error retrieving commit hash: %v\n", err)
-			return
-		}
-
-		commitMessage, diffs, err := llm.GeneratePreDraftPR()
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error generating pre-draft PR: %v\n", err)
-			return
-		}
-
-		if diffs == "" {
-			fmt.Println("[PRBuddy-Go] No changes detected. No pull request draft generated.")
-			return
-		}
-
-		draftPR, err := llm.GenerateDraftPR(commitMessage, diffs)
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error generating draft PR: %v\n", err)
-			return
-		}
-
-		fmt.Println("\n**Draft PR Generated:**")
-		fmt.Println(draftPR)
-
-		err = saveConversationLogs(branchName, commitHash, "Generated draft PR successfully.")
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error saving conversation logs: %v\n", err)
-		}
-
-		fmt.Println("\n[PRBuddy-Go] Post-commit processing complete.")
-	},
+	Run:   runPostCommit,
 }
 
 func init() {
-	rootCmd.AddCommand(postCommitCmd)
+	rootCmd.AddCommand(postCommitCmd) // Ensure proper registration
+}
+
+func runPostCommit(cmd *cobra.Command, args []string) {
+	fmt.Println("[PRBuddy-Go] Running post-commit logic...")
+
+	repoPath, err := utils.GetRepoPath()
+	if err != nil {
+		fmt.Printf("[PRBuddy-Go] Error getting repo path: %v\n", err)
+		return
+	}
+
+	extensionIndicator := filepath.Join(repoPath, ".git", "prbuddy", ".extension-installed")
+	_, extensionInstalled := os.Stat(extensionIndicator)
+
+	branchName, commitHash, draftPR, err := generateDraftPR()
+	if err != nil {
+		fmt.Printf("[PRBuddy-Go] Error generating draft: %v\n", err)
+		return
+	}
+
+	if extensionInstalled == nil {
+		if err := communicateWithExtension(branchName, commitHash, draftPR); err != nil {
+			handleExtensionFailure(draftPR, err)
+		}
+	} else {
+		fmt.Println("\n**Draft PR Generated:**")
+		fmt.Println(draftPR)
+	}
+
+	if err := saveConversationLogs(branchName, commitHash, "Generated draft PR successfully."); err != nil {
+		fmt.Printf("[PRBuddy-Go] Error saving logs: %v\n", err)
+	}
+
+	fmt.Println("\n[PRBuddy-Go] Post-commit processing complete.")
+}
+func generateDraftPR() (string, string, string, error) {
+	branchName, err := utils.ExecuteGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", "", "", fmt.Errorf("error retrieving branch name: %w", err)
+	}
+
+	commitHash, err := utils.ExecuteGitCommand("rev-parse", "HEAD")
+	if err != nil {
+		return "", "", "", fmt.Errorf("error retrieving commit hash: %w", err)
+	}
+
+	commitMessage, diffs, err := llm.GeneratePreDraftPR()
+	if err != nil {
+		return "", "", "", fmt.Errorf("error generating pre-draft: %w", err)
+	}
+
+	if diffs == "" {
+		return "", "", "", fmt.Errorf("no changes detected")
+	}
+
+	draftPR, err := llm.GenerateDraftPR(commitMessage, diffs)
+	if err != nil {
+		return "", "", "", fmt.Errorf("error generating draft: %w", err)
+	}
+
+	return branchName, commitHash, draftPR, nil
+}
+
+func communicateWithExtension(branch, hash, draft string) error {
+	// Try to activate extension
+	cmd := exec.Command("code", "--activate-extension", "your.extension-id")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to activate extension: %w", err)
+	}
+
+	// Get server port
+	port, err := utils.ReadPortFile()
+	if err != nil {
+		return fmt.Errorf("failed to get server port: %w", err)
+	}
+
+	// Send data to extension
+	client := http.Client{Timeout: 5 * time.Second}
+	payload := map[string]interface{}{
+		"branch":    branch,
+		"commit":    hash,
+		"draft_pr":  draft,
+		"timestamp": time.Now().Unix(),
+	}
+
+	resp, err := client.Post(
+		fmt.Sprintf("http://localhost:%d/extension", port),
+		"application/json",
+		strings.NewReader(toJSON(payload)),
+	)
+
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("extension communication failed")
+	}
+
+	return nil
+}
+
+func handleExtensionFailure(draft string, err error) {
+	fmt.Printf("\n[PRBuddy-Go] Instaflow Extension not responding (%v), defaulting to terminal output.\n", err)
+	fmt.Println("\n**Draft PR Generated:**")
+	fmt.Println(draft)
+}
+
+func toJSON(data interface{}) string {
+	b, _ := json.Marshal(data)
+	return string(b)
 }
 
 func saveConversationLogs(branch, hash, message string) error {

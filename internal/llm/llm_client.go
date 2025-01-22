@@ -34,6 +34,41 @@ var (
 	contextMutex       sync.Mutex
 )
 
+// HandleCLIQuickAssist handles CLI requests (stateless)
+func HandleCLIQuickAssist(input string) (string, error) {
+	response, err := GetChatResponse([]Message{
+		{Role: "system", Content: "You are a helpful assistant."},
+		{Role: "user", Content: input},
+	})
+	if err != nil {
+		return "", err
+	}
+	return response, nil
+}
+
+// HandleExtensionQuickAssist handles extension requests (stateful)
+func HandleExtensionQuickAssist(input string) (string, error) {
+	contextMutex.Lock()
+	defer contextMutex.Unlock()
+
+	quickAssistContext = append(quickAssistContext, Message{
+		Role:    "user",
+		Content: input,
+	})
+
+	response, err := GetChatResponse(quickAssistContext)
+	if err != nil {
+		return "", err
+	}
+
+	quickAssistContext = append(quickAssistContext, Message{
+		Role:    "assistant",
+		Content: response,
+	})
+
+	return response, nil
+}
+
 // GeneratePreDraftPR generates the pre-draft PR based on the latest commit
 func GeneratePreDraftPR() (commitMessage string, diffs string, err error) {
 	commitMsg, err := executeGitCommand("git", "log", "-1", "--pretty=%B")
@@ -74,7 +109,7 @@ Please provide a comprehensive PR title and description that explain the changes
 	return response, nil
 }
 
-// GenerateSummary generates a summary of git diffs using the LLM (UNCHANGED)
+// GenerateSummary generates a summary of git diffs using the LLM
 func GenerateSummary(gitDiffs string) (string, error) {
 	prompt := fmt.Sprintf(`
 These are the git diffs for the repository:
@@ -139,41 +174,6 @@ func GetChatResponse(messages []Message) (string, error) {
 
 	logrus.Info("Received response from LLM successfully.")
 	return llmResp.Message.Content, nil
-}
-
-// QuickAssist functions
-func StartQuickAssist() {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-	quickAssistContext = []Message{}
-}
-
-func HandleQuickAssistMessage(input string) (string, error) {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "user",
-		Content: input,
-	})
-
-	response, err := GetChatResponse(quickAssistContext)
-	if err != nil {
-		return "", err
-	}
-
-	quickAssistContext = append(quickAssistContext, Message{
-		Role:    "assistant",
-		Content: response,
-	})
-
-	return response, nil
-}
-
-func ClearQuickAssist() {
-	contextMutex.Lock()
-	defer contextMutex.Unlock()
-	quickAssistContext = []Message{}
 }
 
 // GetLLMConfig gets current model configuration
