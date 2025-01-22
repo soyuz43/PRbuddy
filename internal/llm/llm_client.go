@@ -264,15 +264,20 @@ func GetChatResponse(messages []Message) (string, error) {
 
 // GetLLMConfig gets the current model and endpoint from environment variables
 func GetLLMConfig() (string, string) {
-	model := os.Getenv("PRBUDDY_LLM_MODEL")
 	endpoint := os.Getenv("PRBUDDY_LLM_ENDPOINT")
-
-	if model == "" {
-		model = "hermes3"
-	}
 	if endpoint == "" {
 		endpoint = "http://localhost:11434"
 	}
 
-	return model, endpoint
+	// Use the active model from memory if set, else fallback
+	m := getActiveModel()
+	if m == "" {
+		// fallback to environment or default
+		m = os.Getenv("PRBUDDY_LLM_MODEL")
+		if m == "" {
+			m = "hermes3"
+		}
+	}
+
+	return m, endpoint
 }

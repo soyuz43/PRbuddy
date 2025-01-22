@@ -1,5 +1,5 @@
 ## Post Commit Logic Flow
-
+---
 ```mermaid
 graph TD
     A[Git Commit] --> B[Post-Commit Hook]
@@ -17,6 +17,7 @@ graph TD
 
 
 ## Conversational Flow
+---
 ```mermaid
 sequenceDiagram
     participant D as Developer
@@ -38,3 +39,34 @@ sequenceDiagram
     S->>E: Return response
     E->>D: Show clarification
 ```
+
+## Ephemeral Quick Assist Lifecycle
+---
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Ext as Extension
+    participant Srv as PRBuddy-Go Server
+    participant ConvMgr as ConversationManager
+    participant LLM as LLM API
+
+    Dev->>Ext: Click "Start Ephemeral Assist"
+    Ext->>Srv: POST /extension/quick-assist { ephemeral=true, message="Hello" }
+    alt New ephemeral conversation
+        Srv->>ConvMgr: StartConversation(ephemeral=true)
+    else Conversation found
+        Srv->>ConvMgr: GetConversation()
+    end
+    Srv->>ConvMgr: AddMessage(user, "Hello")
+    Srv->>LLM: BuildContext + Send request
+    LLM-->>Srv: JSON reply
+    Srv->>ConvMgr: AddMessage(assistant, reply)
+    Srv-->>Ext: {"response": "<assistant text>"}
+
+    Dev->>Ext: Request to clear ephemeral context
+    Ext->>Srv: POST /extension/quick-assist/clear { conversationId }
+    Srv->>ConvMgr: RemoveConversation(conversationId)
+    Srv-->>Ext: {"status": "cleared"}
+
+```
+
