@@ -30,7 +30,6 @@ var (
 // fetchOllamaModels queries Ollama at /api/ps to list currently loaded models.
 func fetchOllamaModels() ([]map[string]interface{}, error) {
 	// Hard-coded to the default endpoint (http://localhost:11434)
-	// or you could also store endpoint in a global variable if it's dynamic.
 	resp, err := http.Get("http://localhost:11434/api/ps")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ollama /api/ps: %w", err)
@@ -216,8 +215,15 @@ func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMap := map[string]string{"response": response}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"response": response})
+	w.Write([]byte(jsonResponse))
 }
 
 // QuickAssistClearHandler allows a client (e.g., VSCode extension)
@@ -249,8 +255,15 @@ func QuickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
 
 	conversationManager.RemoveConversation(req.ConversationID)
 
+	responseMap := map[string]string{"status": "cleared"}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+	w.Write([]byte(jsonResponse))
 }
 
 // SaveDraftHandler handles saving a conversation/draft context to disk
@@ -277,8 +290,15 @@ func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMap := map[string]string{"status": "success"}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	w.Write([]byte(jsonResponse))
 }
 
 // LoadDraftHandler retrieves a saved conversation/draft context from disk
@@ -305,11 +325,19 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	responseMap := map[string]interface{}{
 		"status":   "success",
 		"messages": context,
-	})
+	}
+
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(jsonResponse))
 }
 
 // WhatHandler - Summarize "what changed"
@@ -325,8 +353,15 @@ func WhatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMap := map[string]string{"summary": summary}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"summary": summary})
+	w.Write([]byte(jsonResponse))
 }
 
 // ----------------------
@@ -347,8 +382,14 @@ func ListModelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jsonResponse, err := utils.MarshalJSON(models)
+	if err != nil {
+		http.Error(w, "Failed to marshal models", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(models)
+	w.Write([]byte(jsonResponse))
 }
 
 // SetModelHandler updates the in-memory model that PRBuddy-Go will use
@@ -379,11 +420,18 @@ func SetModelHandler(w http.ResponseWriter, r *http.Request) {
 	// Optionally, you can confirm that 'body.Model' is in the list from fetchOllamaModels()
 	setActiveModel(body.Model)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	responseMap := map[string]string{
 		"status":       "model updated",
 		"active_model": getActiveModel(),
-	})
+	}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(jsonResponse))
 }
 
 // ----------------------------------

@@ -124,12 +124,12 @@ func CreateExtensionIndicator() error {
 	}
 
 	prbuddyPath := filepath.Join(repoPath, ".git", "prbuddy")
-	if err := os.MkdirAll(prbuddyPath, 0755); err != nil {
+	if err := os.MkdirAll(prbuddyPath, 0750); err != nil {
 		return fmt.Errorf("failed to create prbuddy directory: %w", err)
 	}
 
 	indicatorPath := filepath.Join(prbuddyPath, ".extension-installed")
-	if err := os.WriteFile(indicatorPath, []byte(""), 0644); err != nil {
+	if err := os.WriteFile(indicatorPath, []byte(""), 0640); err != nil {
 		return fmt.Errorf("failed to create extension indicator: %w", err)
 	}
 

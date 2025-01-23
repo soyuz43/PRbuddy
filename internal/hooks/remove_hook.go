@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 // RemovePostCommitHook removes the post-commit Git hook
 func RemovePostCommitHook() error {
-	repoPath, err := getRepoPath()
+	repoPath, err := utils.GetRepoPath()
 	if err != nil {
 		return err
 	}
