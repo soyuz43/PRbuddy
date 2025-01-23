@@ -20,7 +20,7 @@ func RemovePostCommitHook() error {
 	postCommitPath := filepath.Join(repoPath, ".git", "hooks", "post-commit")
 
 	if _, err := os.Stat(postCommitPath); os.IsNotExist(err) {
-		fmt.Printf("[prbuddy-go] No post-commit hook found at %s\n", postCommitPath)
+		fmt.Printf("[PRBuddy-Go] No post-commit hook found at %s\n", postCommitPath)
 		return nil
 	}
 
@@ -29,6 +29,6 @@ func RemovePostCommitHook() error {
 		return fmt.Errorf("failed to remove post-commit hook: %w", err)
 	}
 
-	fmt.Printf("[prbuddy-go] post-commit hook removed from %s\n", postCommitPath)
+	fmt.Printf("[PRBuddy-Go] post-commit hook removed from %s\n", postCommitPath)
 	return nil
 }
