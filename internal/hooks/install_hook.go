@@ -20,7 +20,7 @@ func InstallPostCommitHook() error {
 	postCommitPath := filepath.Join(hooksDir, "post-commit")
 
 	hookContent := `#!/bin/bash
-echo "[prbuddy-go] Detected commit. Running post-commit hook..."
+echo "[PRBuddy-Go] Detected commit. Running post-commit hook..."
 
 EXTENSION_DIR="$(git rev-parse --git-dir)/prbuddy"
 PORT_FILE="$EXTENSION_DIR/.prbuddy_port"
@@ -57,6 +57,6 @@ fi
 		return fmt.Errorf("failed to write post-commit hook: %w", err)
 	}
 
-	fmt.Printf("[prbuddy-go] post-commit hook installed at %s\n", postCommitPath)
+	fmt.Printf("[PRBuddy-Go] post-commit hook installed at %s\n", postCommitPath)
 	return nil
 }

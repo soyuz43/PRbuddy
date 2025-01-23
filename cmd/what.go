@@ -16,16 +16,16 @@ var whatCmd = &cobra.Command{
 	Long: `Analyzes staged, unstaged, and untracked changes in the repository 
 and provides a natural language summary using the LLM.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("[prbuddy-go] Running 'what' command...")
+		fmt.Println("[PRBuddy-Go] Running 'what' command...")
 
 		// Check if there are any commits in the repository
 		commitCount, err := utils.ExecuteGitCommand("rev-list", "--count", "HEAD")
 		if err != nil {
-			fmt.Printf("[prbuddy-go] Error checking commits: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error checking commits: %v\n", err)
 			return
 		}
 		if commitCount == "0" {
-			fmt.Println("[prbuddy-go] No commits found in the repository. Please make a commit first.")
+			fmt.Println("[PRBuddy-Go] No commits found in the repository. Please make a commit first.")
 			return
 		}
 
@@ -33,10 +33,10 @@ and provides a natural language summary using the LLM.`,
 		summary, err := llm.GenerateWhatSummary()
 		if err != nil {
 			if err.Error() == "no changes detected since the last commit" {
-				fmt.Println("[prbuddy-go] No changes detected.")
+				fmt.Println("[PRBuddy-Go] No changes detected.")
 				return
 			}
-			fmt.Printf("[prbuddy-go] Error generating summary: %v\n", err)
+			fmt.Printf("[PRBuddy-Go] Error generating summary: %v\n", err)
 			return
 		}
 
