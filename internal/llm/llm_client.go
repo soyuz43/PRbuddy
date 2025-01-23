@@ -234,12 +234,12 @@ func GetChatResponse(messages []Message) (string, error) {
 		"stream": false,
 	}
 
-	jsonBody, err := json.Marshal(requestBody)
+	jsonBody, err := utils.MarshalJSON(requestBody)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to marshal request body")
 	}
 
-	resp, err := http.Post(endpoint+"/api/chat", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := http.Post(endpoint+"/api/chat", "application/json", bytes.NewBuffer([]byte(jsonBody)))
 	if err != nil {
 		return "", errors.Wrap(err, "failed to send POST request")
 	}

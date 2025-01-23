@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
@@ -18,22 +19,30 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 		return fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := utils.SanitizeBranchName(branchName)
+	sanitizedBranch := sanitizeBranchName(branchName)
 	commitDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]))
 
-	if err := os.MkdirAll(commitDir, 0750); err != nil {
+	if err := os.MkdirAll(commitDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	filePath := filepath.Join(commitDir, "draft_context.json")
-	data, err := json.MarshalIndent(context, "", "  ")
+	draftContextJSON, err := utils.MarshalJSON(context)
 	if err != nil {
-		return fmt.Errorf("failed to marshal context: %w", err)
+		return err
 	}
 
-	if err := os.WriteFile(filePath, data, 0640); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+	if err := saveFile(commitDir, "draft_context.json", draftContextJSON); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func saveFile(dir, filename, content string) error {
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("file write failed: %w", err)
 	}
 
 	return nil
@@ -46,7 +55,7 @@ func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 		return nil, fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := utils.SanitizeBranchName(branchName)
+	sanitizedBranch := sanitizeBranchName(branchName)
 	filePath := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]), "draft_context.json")
 
@@ -61,4 +70,8 @@ func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 	}
 
 	return context, nil
+}
+
+func sanitizeBranchName(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
 }

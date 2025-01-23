@@ -3,16 +3,15 @@
 package hooks
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
+
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 func InstallPostCommitHook() error {
-	repoPath, err := getRepoPath()
+	repoPath, err := utils.GetRepoPath()
 	if err != nil {
 		return err
 	}
@@ -60,17 +59,4 @@ fi
 
 	fmt.Printf("[prbuddy-go] post-commit hook installed at %s\n", postCommitPath)
 	return nil
-}
-
-// getRepoPath retrieves the current repository path
-func getRepoPath() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("failed to get repository path: %w", err)
-	}
-	repoPath := strings.TrimSpace(out.String())
-	return repoPath, nil
 }
