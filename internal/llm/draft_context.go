@@ -22,7 +22,7 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 	commitDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]))
 
-	if err := os.MkdirAll(commitDir, 0755); err != nil {
+	if err := os.MkdirAll(commitDir, 0750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -32,7 +32,7 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 		return fmt.Errorf("failed to marshal context: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0640); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 

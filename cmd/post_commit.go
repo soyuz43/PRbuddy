@@ -164,7 +164,7 @@ func saveConversationLogs(branch, hash, message string) error {
 	logDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		utils.SanitizeBranchName(branch), fmt.Sprintf("commit-%s", hash[:7]))
 
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return fmt.Errorf("log directory creation: %w", err)
 	}
 
@@ -192,7 +192,7 @@ func saveJSONFile(dir, filename string, data interface{}) error {
 	}
 
 	path := filepath.Join(dir, filename)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0640); err != nil {
 		return fmt.Errorf("file write failed: %w", err)
 	}
 
