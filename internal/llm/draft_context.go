@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
@@ -19,7 +18,7 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 		return fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := sanitizeBranchName(branchName)
+	sanitizedBranch := utils.SanitizeBranchName(branchName)
 	commitDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]))
 
@@ -47,7 +46,7 @@ func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 		return nil, fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := sanitizeBranchName(branchName)
+	sanitizedBranch := utils.SanitizeBranchName(branchName)
 	filePath := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]), "draft_context.json")
 
@@ -62,8 +61,4 @@ func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 	}
 
 	return context, nil
-}
-
-func sanitizeBranchName(branch string) string {
-	return strings.ReplaceAll(branch, "/", "-")
 }
