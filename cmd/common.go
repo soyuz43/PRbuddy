@@ -12,11 +12,15 @@ import (
 )
 
 // Color definitions
+
 var (
-	cyan    = colorutils.Cyan
-	green   = colorutils.Green
-	yellow  = colorutils.Yellow
-	red     = colorutils.Red
+	cyan  = colorutils.Cyan
+	green = colorutils.Green
+	//lint:ignore U1000 This variable is intentionally unused.
+	yellow = colorutils.Yellow
+	//lint:ignore U1000 This variable is intentionally unused.
+	red = colorutils.Red
+	//lint:ignore U1000 This variable is intentionally unused.
 	magenta = colorutils.Magenta
 	bold    = colorutils.Bold
 )

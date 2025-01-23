@@ -58,7 +58,7 @@ if [ -f .git/prbuddy_run ]; then
 
   if [ "$RUN_PR_BUDDY" = "1" ]; then
     echo "` + colorutils.Green("[PRBuddy-Go] Generating PR as requested...") + `"
-    prbuddy-go post-commit
+    prbuddy-go post-commit --non-interactive
   else
     echo "` + colorutils.Yellow("[PRBuddy-Go] Skipping PR generation as requested.") + `"
   fi

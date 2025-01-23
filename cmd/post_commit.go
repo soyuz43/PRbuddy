@@ -1,9 +1,6 @@
-// cmd/post_commit.go
-
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,6 +16,7 @@ import (
 
 var (
 	extensionActive   bool
+	nonInteractive    bool
 	extensionAttempts = 3
 	extensionDelay    = 500 * time.Millisecond
 )
@@ -44,26 +42,22 @@ var postCommitCmd = &cobra.Command{
 func init() {
 	postCommitCmd.Flags().BoolVar(&extensionActive, "extension-active", false,
 		"Indicates extension connectivity check")
+	postCommitCmd.Flags().BoolVar(&nonInteractive, "non-interactive", false,
+		"Disable interactive prompts")
 	rootCmd.AddCommand(postCommitCmd)
 }
 
 func runPostCommit(cmd *cobra.Command, args []string) {
-	fmt.Println("[PRBuddy-Go] Starting post-commit workflow...")
-
-	// Add interactive confirmation prompt
-	if !shouldGeneratePR() {
-		fmt.Println("[PRBuddy-Go] Draft PR generation cancelled by user.")
-		return
+	if !nonInteractive {
+		fmt.Println("[PRBuddy-Go] Starting post-commit workflow...")
 	}
 
-	// Generate draft PR
 	branchName, commitHash, draftPR, err := generateDraftPR()
 	if err != nil {
 		handleGenerationError(err)
 		return
 	}
 
-	// Handle extension communication if active
 	if extensionActive {
 		if commErr := communicateWithExtension(branchName, commitHash, draftPR); commErr != nil {
 			handleExtensionFailure(draftPR, commErr)
@@ -72,38 +66,12 @@ func runPostCommit(cmd *cobra.Command, args []string) {
 		presentTerminalOutput(draftPR)
 	}
 
-	// Save conversation logs
 	if logErr := saveConversationLogs(branchName, commitHash, "Draft generated"); logErr != nil {
 		fmt.Printf("[PRBuddy-Go] Logging error: %v\n", logErr)
 	}
 
-	fmt.Println("[PRBuddy-Go] Post-commit workflow completed")
-}
-
-// shouldGeneratePR prompts the user for confirmation and returns true if they want to proceed
-func shouldGeneratePR() bool {
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		fmt.Print("\n[PRBuddy-Go] Would you like to generate a draft pull request? ([y]/n) ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Printf("[PRBuddy-Go] Error reading input: %v\n", err)
-			return true // Default to generate on error
-		}
-
-		// Clean and normalize input
-		cleanInput := strings.TrimSpace(strings.ToLower(input))
-
-		switch cleanInput {
-		case "", "y", "yes":
-			return true
-		case "n", "no":
-			return false
-		default:
-			fmt.Println("[PRBuddy-Go] Please answer with 'y', 'n', or press Enter to accept default.")
-			continue
-		}
+	if !nonInteractive {
+		fmt.Println("[PRBuddy-Go] Post-commit workflow completed")
 	}
 }
 
