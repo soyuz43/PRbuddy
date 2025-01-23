@@ -7,14 +7,18 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
+	"github.com/soyuz43/prbuddy-go/internal/utils/colorutils"
 	"github.com/spf13/cobra"
 )
 
 // Color definitions
 var (
-	cyan  = color.New(color.FgCyan).SprintFunc()
-	green = color.New(color.FgGreen).SprintFunc()
-	bold  = color.New(color.Bold).SprintFunc()
+	cyan    = colorutils.Cyan
+	green   = colorutils.Green
+	yellow  = colorutils.Yellow
+	red     = colorutils.Red
+	magenta = colorutils.Magenta
+	bold    = colorutils.Bold
 )
 
 // Root command
