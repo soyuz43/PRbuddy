@@ -17,53 +17,26 @@ func InstallPostCommitHook() error {
 
 	hooksDir := filepath.Join(repoPath, ".git", "hooks")
 
-	// Install pre-commit hook
-	preCommitPath := filepath.Join(hooksDir, "pre-commit")
-	preCommitHookContent := `#!/bin/bash
-echo "` + colorutils.Cyan("[PRBuddy-Go] Detected commit. Generate PR?") + `"
-
-# Prompt the user
-read -p "` + colorutils.Cyan("[PRBuddy-Go] Do you want to generate a PR for this commit? ([y]/n) ") + `" yn
-case $yn in
-  [Yy]*|"" )
-    echo "1" > .git/prbuddy_run
-    ;;
-  [Nn]* )
-    echo "0" > .git/prbuddy_run
-    ;;
-  * )
-    echo "` + colorutils.Red("[PRBuddy-Go] Invalid input. Defaulting to 'no'.") + `"
-    echo "0" > .git/prbuddy_run
-    ;;
-esac
-
-exit 0
-`
-
-	err = os.WriteFile(preCommitPath, []byte(preCommitHookContent), 0755)
-	if err != nil {
-		return fmt.Errorf("failed to write pre-commit hook: %w", err)
+	// Ensure the hooks directory exists
+	if _, err := os.Stat(hooksDir); os.IsNotExist(err) {
+		err = os.MkdirAll(hooksDir, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create hooks directory: %w", err)
+		}
 	}
-	fmt.Printf(colorutils.Cyan("[PRBuddy-Go] pre-commit hook installed at %s\n"), preCommitPath)
 
 	// Install post-commit hook
 	postCommitPath := filepath.Join(hooksDir, "post-commit")
 	postCommitHookContent := `#!/bin/bash
-echo "` + colorutils.Cyan("[PRBuddy-Go] Detected commit. Running post-commit hook...") + `"
+echo "` + colorutils.Cyan("[PRBuddy-Go] Commit detected. Generating pull request...") + `"
 
-# Check if the user opted to generate a PR
-if [ -f .git/prbuddy_run ]; then
-  RUN_PR_BUDDY=$(cat .git/prbuddy_run)
-  rm -f .git/prbuddy_run
+# Run the PR generation command
+prbuddy-go post-commit --non-interactive
 
-  if [ "$RUN_PR_BUDDY" = "1" ]; then
-    echo "` + colorutils.Green("[PRBuddy-Go] Generating PR as requested...") + `"
-    prbuddy-go post-commit --non-interactive
-  else
-    echo "` + colorutils.Yellow("[PRBuddy-Go] Skipping PR generation as requested.") + `"
-  fi
+if [ $? -eq 0 ]; then
+  echo "` + colorutils.Green("[PRBuddy-Go] Pull request generated successfully.") + `"
 else
-  echo "` + colorutils.Yellow("[PRBuddy-Go] No PR generation preference found. Skipping.") + `"
+  echo "` + colorutils.Red("[PRBuddy-Go] Failed to generate pull request.") + `"
 fi
 `
 
