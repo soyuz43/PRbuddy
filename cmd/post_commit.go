@@ -150,6 +150,7 @@ func handleExtensionFailure(draft string, err error) {
 
 func presentTerminalOutput(draft string) {
 	const line = "═══════════════════════════════════════════════════"
+	// Corrected fmt.Printf call with matching number of arguments and format verbs
 	fmt.Printf("\n%s\n🚀 Draft PR Generated\n%s\n%s\n%s\n\n",
 		line, line, draft, line)
 }
@@ -161,7 +162,7 @@ func saveConversationLogs(branch, hash, message string) error {
 	}
 
 	logDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
-		sanitizeBranchName(branch), fmt.Sprintf("commit-%s", hash[:7]))
+		utils.SanitizeBranchName(branch), fmt.Sprintf("commit-%s", hash[:7]))
 
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("log directory creation: %w", err)
@@ -196,10 +197,6 @@ func saveJSONFile(dir, filename string, data interface{}) error {
 	}
 
 	return nil
-}
-
-func sanitizeBranchName(branch string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(branch, "/", "_"), " ", "-")
 }
 
 func toJSON(data interface{}) string {
