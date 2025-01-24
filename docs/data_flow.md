@@ -44,11 +44,11 @@ sequenceDiagram
 ---
 ```mermaid
 sequenceDiagram
-    participant Dev as Developer
     participant Ext as Extension
-    participant Srv as PRBuddy-Go Server
     participant ConvMgr as ConversationManager
+    participant Srv as PRBuddy-Go Server
     participant LLM as LLM API
+    participant Dev as Developer
 
     Dev->>Ext: Click "Start Ephemeral Assist"
     Ext->>Srv: POST /extension/quick-assist { ephemeral=true, message="Hello" }
