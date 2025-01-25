@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// initialization
 func runRootCommand(cmd *cobra.Command, args []string) {
 	color.Cyan("[PRBuddy-Go] Starting...\n")
 
@@ -53,7 +54,7 @@ func showInitialMenu() {
 			return
 		case "help", "h":
 			printInitialHelp()
-		case "exit":
+		case "exit", "e", "quit", "q":
 			color.Cyan("Exiting...\n")
 			return
 		default:
