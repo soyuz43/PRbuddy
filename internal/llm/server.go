@@ -98,12 +98,16 @@ type ServerConfig struct {
 
 // StartServer initializes and runs the HTTP server with full lifecycle management
 func StartServer(cfg ServerConfig) error {
+	// Ensure cache directory exists first
+	if err := utils.EnsureAppCacheDir(); err != nil {
+		return fmt.Errorf("cache directory initialization failed: %w", err)
+	}
+
 	listener, err := net.Listen("tcp", cfg.Host+":0")
 	if err != nil {
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
 
-	// Write port file before starting server
 	port := listener.Addr().(*net.TCPAddr).Port
 	if err := utils.WritePortFile(port); err != nil {
 		return fmt.Errorf("port file write failed: %w", err)

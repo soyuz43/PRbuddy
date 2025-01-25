@@ -28,6 +28,10 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 	}
 }
 
+func handleServeCommand() {
+	color.Cyan("\n[PRBuddy-Go] Starting API server...\n")
+	llm.ServeCmd.Run(nil, nil) // This will use the ServeCmd from your llm package
+}
 func showInitialMenu() {
 	color.Yellow("\nPRBuddy-Go is not initialized in this repository.\n")
 
@@ -70,6 +74,7 @@ func runInteractiveSession() {
 	fmt.Printf("   %s    - %s\n", green("generate pr"), "Generate a draft pull request")
 	fmt.Printf("   %s    - %s\n", green("what changed"), "Show changes since the last commit")
 	fmt.Printf("   %s    - %s\n", green("quickassist"), "Get AI assistance for coding questions")
+	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show help information")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
 
@@ -99,6 +104,8 @@ func runInteractiveSession() {
 			handleWhatChanged()
 		case "quickassist", "qa":
 			handleQuickAssist(args, reader) // Pass args and reader to the handler
+		case "serve", "s":
+			handleServeCommand()
 		case "help", "h":
 			printInteractiveHelp()
 		case "exit", "e", "quit", "q":
