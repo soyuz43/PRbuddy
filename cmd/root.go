@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/soyuz43/prbuddy-go/internal/llm"
 	"github.com/spf13/cobra"
 )
 
+// initialization
 func runRootCommand(cmd *cobra.Command, args []string) {
 	color.Cyan("[PRBuddy-Go] Starting...\n")
 
@@ -26,6 +28,10 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 	}
 }
 
+func handleServeCommand() {
+	color.Cyan("\n[PRBuddy-Go] Starting API server...\n")
+	llm.ServeCmd.Run(nil, nil) // This will use the ServeCmd from your llm package
+}
 func showInitialMenu() {
 	color.Yellow("\nPRBuddy-Go is not initialized in this repository.\n")
 
@@ -47,12 +53,12 @@ func showInitialMenu() {
 		command := strings.TrimSpace(strings.ToLower(input))
 
 		switch command {
-		case "init":
+		case "init", "i":
 			initCmd.Run(nil, nil)
 			return
-		case "help":
+		case "help", "h":
 			printInitialHelp()
-		case "exit":
+		case "exit", "e", "quit", "q":
 			color.Cyan("Exiting...\n")
 			return
 		default:
@@ -67,6 +73,8 @@ func runInteractiveSession() {
 	fmt.Println(bold("Available Commands:"))
 	fmt.Printf("   %s    - %s\n", green("generate pr"), "Generate a draft pull request")
 	fmt.Printf("   %s    - %s\n", green("what changed"), "Show changes since the last commit")
+	fmt.Printf("   %s    - %s\n", green("quickassist"), "Get AI assistance for coding questions")
+	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show help information")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
 
@@ -80,16 +88,27 @@ func runInteractiveSession() {
 			continue
 		}
 
-		command := strings.TrimSpace(strings.ToLower(input))
+		// Split the input into command and arguments
+		parts := strings.Fields(strings.TrimSpace(input))
+		if len(parts) == 0 {
+			continue
+		}
+
+		command := strings.ToLower(parts[0])
+		args := parts[1:] // Extract arguments from the input
 
 		switch command {
-		case "generate pr", "gen pr", "pr":
+		case "generate pr", "gen pr", "pr", "gen":
 			handleGeneratePR()
-		case "what changed", "what", "changes":
+		case "what changed", "what", "changes", "w":
 			handleWhatChanged()
-		case "help":
+		case "quickassist", "qa":
+			handleQuickAssist(args, reader) // Pass args and reader to the handler
+		case "serve", "s":
+			handleServeCommand()
+		case "help", "h":
 			printInteractiveHelp()
-		case "exit", "quit", "q":
+		case "exit", "e", "quit", "q":
 			color.Cyan("Exiting...\n")
 			return
 		default:
@@ -106,6 +125,33 @@ func handleGeneratePR() {
 func handleWhatChanged() {
 	color.Cyan("\n[PRBuddy-Go] Checking changes...\n")
 	whatCmd.Run(nil, nil)
+}
+
+func handleQuickAssist(args []string, reader *bufio.Reader) {
+	color.Cyan("\n[PRBuddy-Go] Quick Assist - Ask me anything about your code!\n")
+
+	var query string
+	if len(args) > 0 {
+		query = strings.Join(args, " ")
+	} else {
+		fmt.Print("Enter your question: ")
+		input, _ := reader.ReadString('\n')
+		query = strings.TrimSpace(input)
+	}
+
+	if query == "" {
+		color.Red("No question provided\n")
+		return
+	}
+
+	response, err := llm.HandleCLIQuickAssist(query)
+	if err != nil {
+		color.Red("Error: %v\n", err)
+		return
+	}
+
+	fmt.Println("\n" + green("Assistant Response:"))
+	fmt.Println(response)
 }
 
 func printInitialHelp() {
