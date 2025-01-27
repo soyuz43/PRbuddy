@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 // SaveDraftContext saves conversation messages to disk for a specific branch/commit
-func SaveDraftContext(branchName, commitHash string, context []Message) error {
+func SaveDraftContext(branchName, commitHash string, context []contextpkg.Message) error {
 	repoPath, err := utils.GetRepoPath()
 	if err != nil {
 		return fmt.Errorf("failed to get repository path: %w", err)
@@ -29,27 +30,18 @@ func SaveDraftContext(branchName, commitHash string, context []Message) error {
 
 	draftContextJSON, err := utils.MarshalJSON(context)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal draft context: %w", err)
 	}
 
-	if err := saveFile(commitDir, "draft_context.json", draftContextJSON); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func saveFile(dir, filename, content string) error {
-	path := filepath.Join(dir, filename)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return fmt.Errorf("file write failed: %w", err)
+	if err := saveFile(commitDir, "draft_context.json", string(draftContextJSON)); err != nil {
+		return fmt.Errorf("failed to save draft context: %w", err)
 	}
 
 	return nil
 }
 
 // LoadDraftContext retrieves saved conversation context for a specific branch/commit
-func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
+func LoadDraftContext(branchName, commitHash string) ([]contextpkg.Message, error) {
 	repoPath, err := utils.GetRepoPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get repository path: %w", err)
@@ -61,17 +53,28 @@ func LoadDraftContext(branchName, commitHash string) ([]Message, error) {
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to read draft context file: %w", err)
 	}
 
-	var context []Message
+	var context []contextpkg.Message
 	if err := json.Unmarshal(data, &context); err != nil {
-		return context, fmt.Errorf("failed to unmarshal context: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal draft context: %w", err)
 	}
 
 	return context, nil
 }
 
+// saveFile writes content to a specified file within a directory
+func saveFile(dir, filename, content string) error {
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("file write failed: %w", err)
+	}
+
+	return nil
+}
+
+// sanitizeBranchName replaces characters that are not filesystem-friendly
 func sanitizeBranchName(branch string) string {
-	return strings.ReplaceAll(branch, "/", "-")
+	return strings.ReplaceAll(strings.ReplaceAll(branch, "/", "_"), " ", "-")
 }
