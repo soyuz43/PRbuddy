@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -257,7 +258,8 @@ func QuickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conversationManager.RemoveConversation(req.ConversationID)
+	// Use contextpkg.ConversationManagerInstance to remove the conversation
+	contextpkg.ConversationManagerInstance.RemoveConversation(req.ConversationID)
 
 	responseMap := map[string]string{"status": "cleared"}
 	jsonResponse, err := utils.MarshalJSON(responseMap)
@@ -279,13 +281,23 @@ func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request struct {
-		Branch   string    `json:"branch"`
-		Commit   string    `json:"commit"`
-		Messages []Message `json:"messages"`
+		Branch   string               `json:"branch"`
+		Commit   string               `json:"commit"`
+		Messages []contextpkg.Message `json:"messages"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+
+	if request.Branch == "" || request.Commit == "" {
+		http.Error(w, "branch and commit are required", http.StatusBadRequest)
+		return
+	}
+
+	if len(request.Messages) == 0 {
+		http.Error(w, "messages are required", http.StatusBadRequest)
 		return
 	}
 
@@ -320,6 +332,11 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+
+	if request.Branch == "" || request.Commit == "" {
+		http.Error(w, "branch and commit are required", http.StatusBadRequest)
 		return
 	}
 

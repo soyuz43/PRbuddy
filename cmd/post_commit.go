@@ -1,3 +1,5 @@
+// cmd/post_commit.go
+
 package cmd
 
 import (
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/llm"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
@@ -21,15 +24,11 @@ var (
 	extensionDelay    = 500 * time.Millisecond
 )
 
+// ConversationLog represents the structure for logging conversations
 type ConversationLog struct {
-	BranchName string    `json:"branch_name"`
-	CommitHash string    `json:"commit_hash"`
-	Messages   []Message `json:"messages"`
-}
-
-type Message struct {
-	From    string `json:"from"`
-	Content string `json:"content"`
+	BranchName string               `json:"branch_name"`
+	CommitHash string               `json:"commit_hash"`
+	Messages   []contextpkg.Message `json:"messages"`
 }
 
 var postCommitCmd = &cobra.Command{
@@ -139,7 +138,7 @@ func retryCommunication(port int, branch, hash, draft string) error {
 		resp, err := client.Post(
 			fmt.Sprintf("http://localhost:%d/extension", port),
 			"application/json",
-			strings.NewReader(jsonPayload),
+			strings.NewReader(string(jsonPayload)),
 		)
 
 		if err == nil && resp.StatusCode == http.StatusOK {
@@ -179,9 +178,9 @@ func saveConversationLogs(branch, hash, message string) error {
 	conversation := ConversationLog{
 		BranchName: branch,
 		CommitHash: hash,
-		Messages: []Message{
-			{From: "System", Content: "Initiated draft generation"},
-			{From: "PRBuddy-Go", Content: message},
+		Messages: []contextpkg.Message{
+			{Role: "system", Content: "Initiated draft generation"},
+			{Role: "assistant", Content: message},
 		},
 	}
 
@@ -190,11 +189,11 @@ func saveConversationLogs(branch, hash, message string) error {
 		return err
 	}
 
-	if err := saveFile(logDir, "conversation.json", conversationJSON); err != nil {
+	if err := saveFile(logDir, "conversation.json", string(conversationJSON)); err != nil {
 		return err
 	}
 
-	draftContext := []llm.Message{
+	draftContext := []contextpkg.Message{
 		{Role: "system", Content: "Initial draft context"},
 		{Role: "assistant", Content: message},
 	}
@@ -204,7 +203,7 @@ func saveConversationLogs(branch, hash, message string) error {
 		return err
 	}
 
-	return saveFile(logDir, "draft_context.json", draftContextJSON)
+	return saveFile(logDir, "draft_context.json", string(draftContextJSON))
 }
 
 func saveFile(dir, filename, content string) error {
