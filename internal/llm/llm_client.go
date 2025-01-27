@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
+	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
@@ -90,30 +91,55 @@ func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (s
 		return "", fmt.Errorf("no user message provided")
 	}
 
+	// Get existing conversation or create a new ephemeral one
 	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
 	if !exists {
-		// Create a new ephemeral conversation if no ID was provided or not found
+		// Generate a new conversation ID if not provided or not found
 		if conversationID == "" {
-			conversationID = fmt.Sprintf("ephemeral-%d", time.Now().UnixNano())
+			conversationID = contextpkg.GenerateConversationID("ephemeral")
 		}
-
-		// For ephemeral quick assist, we typically have no initial diff
 		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", ephemeral)
 	}
 
-	// Add user message
+	// Add user message to the conversation
 	conv.AddMessage("user", input)
 
-	// Build context with diff/truncation logic (if any)
-	context := conv.BuildContext()
+	// If ephemeral, initialize and use DCE
+	if ephemeral {
+		// Initialize DCE instance
+		dceInstance := dce.NewDCE()
+		if err := dceInstance.Activate(input); err != nil {
+			return "", fmt.Errorf("DCE activation failed: %w", err)
+		}
+		defer dceInstance.Deactivate(conversationID)
 
-	// Get response from LLM
-	response, err := llmClient.GetChatResponse(context)
-	if err != nil {
-		return "", err
+		// Build task list from user input
+		taskList, err := dceInstance.BuildTaskList(input)
+		if err != nil {
+			return "", fmt.Errorf("failed to build task list: %w", err)
+		}
+
+		// Filter project data based on tasks
+		filteredData, err := dceInstance.FilterProjectData(taskList)
+		if err != nil {
+			return "", fmt.Errorf("failed to filter project data: %w", err)
+		}
+
+		// Build initial context and augment with filtered data
+		augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
+		conv.SetMessages(augmentedContext)
 	}
 
-	// Add assistant response
+	// Build the final context for LLM response generation
+	context := conv.BuildContext()
+
+	// Retrieve response from LLM
+	response, err := llmClient.GetChatResponse(context)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from LLM: %w", err)
+	}
+
+	// Add assistant response to the conversation
 	conv.AddMessage("assistant", response)
 
 	return response, nil

@@ -1,7 +1,3 @@
-Your conceptual model for integrating the Dynamic Context Engine (DCE) into your `prbuddy-go` project is both thoughtful and ambitious. Let’s break down your objectives, assess the logical flow, evaluate the realism and alignment with software best practices, and identify potential challenges and considerations to ensure successful implementation.
-
----
-
 ## **1. Flow of Logic for the Conversational Context**
 
 ### **a. Overview of Components**
@@ -73,58 +69,73 @@ Visualizing the flow can aid in understanding and identifying integration points
 graph TD
     %% Developer interacts with the VS Code Extension
     A[Developer] -->|Uses| B[VS Code Extension]
-    
+
     %% Path 1: Generating PRs on Commit
     B -->|Commit Triggered| C[prbuddy-go Backend]
-    C -->|Starts Conversation| D[Persisted PR Context]
+    C -->|Starts PR Conversation| D[Persisted PR Context]
     D -->|Interacts with| H[LLM]
     H -->|Generates PR Draft| D
-    D -->|Allows Iteration/Add Context| A
-    
-    %% Path 2: Using QuickAssist
-    B -->|Initiates QuickAssist| E[prbuddy-go Backend]
-    E -->|Creates Ephemeral Context| F[Ephemeral Context]
-    F -->|Interacts with| H
-    H -->|Provides Assistance| F
-    F -->|Retained in Memory| E
-    
-    %% Path 3: Activating DCE
-    A -->|Activates DCE via Slider| G[prbuddy-go Backend]
-    G -->|Hooks into QuickAssist| F
-    F -->|Dynamic Augmentation| G
-    G -->|Uses API Calls to VS Code| I[VS Code APIs]
-    I -->|Scrapes Project Data| G
-    G -->|Updates Ephemeral Context| F
-    
-    %% Additional Interactions
-    B -->|Fetches Data via VS Code APIs| I
-    I -->|Returns Data| B
-    C -->|Manages Conversations| D
-    E -->|Handles QuickAssist Queries| F
+    D -->|Allows Iteration| A
 
+    %% Path 2: Using QuickAssist
+    B -->|QuickAssist Request| E[QuickAssist Endpoint]
+    E -->|Builds Ephemeral Context| F[Shared Logic]
+    F -->|Interacts with| H
+    H -->|Provides Quick Response| E
+    E -->|Returns Response| B
+
+    %% Path 3: Using DCE
+    B -->|DCE Toggle On| G[DCE Endpoint]
+    G -->|Prompts: What are we doing today?| B
+    B -->|Developer Provides Task List| G
+    G -->|Builds Task List| J[Shared Logic]
+    G -->|Filters Project Data| I[VS Code APIs]
+    I -->|Returns Project Data| G
+    G -->|Augments Ephemeral Context| F
+    F -->|Interacts with| H
+    H -->|Provides Dynamic Feedback| G
+    G -->|Updates Context| F
+    F -->|Maintains Feedback Loop| G
+
+    %% Shared Logic and Flow Paths
+    classDef sharedLogic fill:#f3f3f3,stroke:#333,stroke-width:2px;
+    class F sharedLogic;
+
+    %% Path Styles for Clarity
+    classDef path1 fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef path2 fill:#bfb,stroke:#333,stroke-width:2px;
+    classDef path3 fill:#ffb,stroke:#333,stroke-width:2px;
+
+    class C,D,H path1;
+    class E,F path2;
+    class G,I,J path3;
 ```
 
-### **Diagram Explanation:**
 
-1. **Activation and Proactive Interaction:**
-   - The developer activates DCE via the VS Code extension.
-   - `prbuddy-go` sends a proactive prompt to the developer.
-   - The developer responds, generating a task list.
 
-2. **Dynamic Context and Data Integration:**
-   - The DCE determines the necessary data based on tasks.
-   - Instructs the extension to fetch relevant data from VS Code APIs.
-   - Retrieved data is sent back to the backend and incorporated into the conversation context.
-   - The enriched context is used by the LLM to provide tailored assistance.
+### **Explanation of the Diagram**
+1. **Path 1: Generating PRs on Commit**
+   - Triggered by a post-commit hook.
+   - Starts a **persistent conversation** with the backend.
+   - Uses the LLM to generate a draft PR and allows iterative editing.
 
-3. **Conversation Management:**
-   - PR-related conversations are persisted for iterative refinements.
-   - Dynamic contexts managed by DCE remain ephemeral, ensuring no unnecessary data persistence.
+2. **Path 2: Using QuickAssist**
+   - Handles **stateless ephemeral queries**.
+   - Calls the **QuickAssist endpoint**, which uses shared logic for building context and interacting with the LLM.
+   - Returns a direct response to the developer without saving context.
 
-4. **QuickAssist Without DCE:**
-   - When DCE is inactive, QuickAssist operates with ephemeral contexts, handling queries without persistence.
+3. **Path 3: Using DCE**
+   - Triggered by a **toggle** in the VS Code extension.
+   - Prompts the developer for a task list and builds **dynamic context** around it.
+   - Filters project data using VS Code APIs and augments the ephemeral context.
+   - Maintains a **dynamic feedback loop**, updating the context as tasks progress.
 
----
+4. **Shared Logic**
+   - Centralized logic handles common tasks like building context, calling the LLM, and managing ephemeral interactions.
+   - Used by both the QuickAssist and DCE endpoints to avoid duplication.
+
+
+
 
 ## **3. Evaluation of Conceptual Model**
 

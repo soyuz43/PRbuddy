@@ -32,6 +32,7 @@ func handleServeCommand() {
 	color.Cyan("\n[PRBuddy-Go] Starting API server...\n")
 	llm.ServeCmd.Run(nil, nil) // This will use the ServeCmd from your llm package
 }
+
 func showInitialMenu() {
 	color.Yellow("\nPRBuddy-Go is not initialized in this repository.\n")
 
@@ -103,7 +104,7 @@ func runInteractiveSession() {
 		case "what changed", "what", "changes", "w":
 			handleWhatChanged()
 		case "quickassist", "qa":
-			handleQuickAssist(args, reader) // Pass args and reader to the handler
+			handleQuickAssist(args, reader)
 		case "serve", "s":
 			handleServeCommand()
 		case "help", "h":
@@ -131,7 +132,18 @@ func handleQuickAssist(args []string, reader *bufio.Reader) {
 	color.Cyan("\n[PRBuddy-Go] Quick Assist - Ask me anything about your code!\n")
 
 	var query string
+	var dceActive bool
+
 	if len(args) > 0 {
+		// Check if '--dce' flag is present in arguments
+		for i, arg := range args {
+			if arg == "--dce" || arg == "-d" {
+				dceActive = true
+				// Remove the flag from arguments
+				args = append(args[:i], args[i+1:]...)
+				break
+			}
+		}
 		query = strings.Join(args, " ")
 	} else {
 		fmt.Print("Enter your question: ")
@@ -144,14 +156,26 @@ func handleQuickAssist(args []string, reader *bufio.Reader) {
 		return
 	}
 
-	response, err := llm.HandleCLIQuickAssist(query)
-	if err != nil {
-		color.Red("Error: %v\n", err)
-		return
-	}
+	if dceActive {
+		// Handle QuickAssist with DCE
+		response, err := llm.HandleExtensionQuickAssist("", query, true)
+		if err != nil {
+			color.Red("Error with DCE-enabled QuickAssist: %v\n", err)
+			return
+		}
+		fmt.Println("\nQuickAssist (DCE Enabled) Response:")
+		fmt.Println(response)
+	} else {
+		// Handle standard QuickAssist
+		response, err := llm.HandleCLIQuickAssist(query)
+		if err != nil {
+			color.Red("Error: %v\n", err)
+			return
+		}
 
-	fmt.Println("\n" + green("Assistant Response:"))
-	fmt.Println(response)
+		fmt.Println("\nQuickAssist Response:")
+		fmt.Println(response)
+	}
 }
 
 func printInitialHelp() {
@@ -165,6 +189,8 @@ func printInteractiveHelp() {
 	fmt.Println(bold("\nAvailable Commands:"))
 	fmt.Printf("   %s    - %s\n", green("generate pr"), "Generate a draft pull request")
 	fmt.Printf("   %s    - %s\n", green("what changed"), "Show changes since the last commit")
+	fmt.Printf("   %s    - %s\n", green("quickassist"), "Get AI assistance for coding questions")
+	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show this help information")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
 }

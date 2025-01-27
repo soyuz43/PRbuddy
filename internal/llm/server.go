@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
+	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -146,6 +147,11 @@ func registerHandlers(router *http.ServeMux) {
 	// -------------------------
 	router.HandleFunc("/extension/models", ListModelsHandler)
 	router.HandleFunc("/extension/model", SetModelHandler)
+
+	// -------------------------
+	//  NEW: DCE Endpoint
+	// -------------------------
+	router.HandleFunc("/extension/dce", DCEHandler)
 }
 
 func manageServerLifecycle(server *http.Server, listener net.Listener, timeout time.Duration) error {
@@ -350,7 +356,6 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 		"status":   "success",
 		"messages": context,
 	}
-
 	jsonResponse, err := utils.MarshalJSON(responseMap)
 	if err != nil {
 		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
@@ -455,9 +460,82 @@ func SetModelHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// ----------------------------------
-// ServeCmd for CLI usage
-// ----------------------------------
+// ----------------------
+//   NEW: DCE Endpoint
+// ----------------------
+
+// DCEHandler handles Dynamic Context Engine requests
+// POST /extension/dce
+// Request JSON format:
+//
+//	{
+//	  "taskListInput": "User-defined task input"
+//	}
+func DCEHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		TaskListInput string `json:"taskListInput"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+
+	if req.TaskListInput == "" {
+		http.Error(w, "taskListInput is required", http.StatusBadRequest)
+		return
+	}
+
+	// Initialize DCE
+	dceInstance := dce.NewDCE()
+	if err := dceInstance.Activate(req.TaskListInput); err != nil {
+		http.Error(w, fmt.Sprintf("DCE activation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer dceInstance.Deactivate("dce-conversation-id") // Use appropriate conversation ID
+
+	// Example: Build dynamic context based on task list
+	taskList, err := dceInstance.BuildTaskList(req.TaskListInput)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to build task list: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	filteredData, err := dceInstance.FilterProjectData(taskList)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to filter project data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Augment context with filtered data
+	augmentedContext := dceInstance.AugmentContext(contextpkg.BuildEphemeralContext(req.TaskListInput), filteredData)
+
+	// Send request to LLM
+	response, err := llmClient.GetChatResponse(augmentedContext)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("LLM request failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Optionally, handle response (e.g., update context, provide feedback)
+
+	// Return response
+	responseMap := map[string]string{"response": response}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(jsonResponse))
+}
+
+// ServeCmd is the Cobra command to start the API server
 var ServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start API server for extension integration",

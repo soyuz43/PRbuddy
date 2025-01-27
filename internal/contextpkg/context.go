@@ -1,5 +1,3 @@
-// internal/contextpkg/context.go
-
 package contextpkg
 
 import (
@@ -32,6 +30,7 @@ type Conversation struct {
 	Messages       []Message
 	LastActivity   time.Time
 	DiffTruncation bool
+	mutex          sync.RWMutex
 }
 
 // ConversationManager manages all conversations
@@ -93,8 +92,11 @@ func (cm *ConversationManager) Cleanup(maxAge time.Duration) {
 	}
 }
 
-// AddMessage adds a new message to the conversation
+// AddMessage adds a new message to the conversation (thread-safe)
 func (c *Conversation) AddMessage(role, content string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	c.Messages = append(c.Messages, Message{
 		Role:    role,
 		Content: content,
@@ -102,8 +104,11 @@ func (c *Conversation) AddMessage(role, content string) {
 	c.LastActivity = time.Now()
 }
 
-// BuildContext constructs the conversation context with proper diff management
+// BuildContext constructs the conversation context with proper diff management (thread-safe)
 func (c *Conversation) BuildContext() []Message {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
 	context := make([]Message, 0, len(c.Messages)+2)
 
 	// Add system message
@@ -120,7 +125,6 @@ func (c *Conversation) BuildContext() []Message {
 				Content: fmt.Sprintf("Initial code changes:\n%s", c.InitialDiff),
 			})
 		} else {
-			// Add truncated diff after certain interactions
 			context = append(context, Message{
 				Role:    "user",
 				Content: fmt.Sprintf("Initial code changes (truncated):\n%s", truncateDiff(c.InitialDiff)),
@@ -132,6 +136,13 @@ func (c *Conversation) BuildContext() []Message {
 	// Add conversation messages
 	context = append(context, c.Messages...)
 	return context
+}
+
+// SetMessages replaces all messages in the conversation (thread-safe)
+func (c *Conversation) SetMessages(messages []Message) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.Messages = messages
 }
 
 // truncateDiff reduces the size of large diffs while preserving important context
@@ -156,13 +167,7 @@ func joinLines(lines []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// GetActiveModel retrieves the active model from the context
-func GetActiveModel() string {
-	// Implement logic to retrieve active model if stored within context
-	return ""
-}
-
-// AddTask adds a new task to the conversation
+// AddTask adds a new task to the conversation (thread-safe)
 func (cm *ConversationManager) AddTask(conversationID string, task Task) error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
@@ -185,7 +190,7 @@ func (cm *ConversationManager) AddTask(conversationID string, task Task) error {
 	return nil
 }
 
-// GetTasks retrieves all tasks from the conversation
+// GetTasks retrieves all tasks from the conversation (thread-safe)
 func (cm *ConversationManager) GetTasks(conversationID string) ([]Task, error) {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
@@ -195,16 +200,13 @@ func (cm *ConversationManager) GetTasks(conversationID string) ([]Task, error) {
 		return nil, fmt.Errorf("conversation %s not found", conversationID)
 	}
 
-	// Parse messages to extract tasks
 	var tasks []Task
 	for _, msg := range conv.Messages {
 		if strings.HasPrefix(msg.Content, "Task: ") {
-			// Simple parsing logic; enhance as needed
 			task, err := parseTaskMessage(msg.Content)
-			if err != nil {
-				continue
+			if err == nil {
+				tasks = append(tasks, task)
 			}
-			tasks = append(tasks, task)
 		}
 	}
 
@@ -236,3 +238,21 @@ func parseTaskMessage(content string) (Task, error) {
 
 // ConversationManagerInstance is the singleton instance of ConversationManager
 var ConversationManagerInstance = NewConversationManager()
+
+// GenerateConversationID creates a unique conversation ID
+func GenerateConversationID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
+// GetActiveModel retrieves the active model from the context
+func GetActiveModel() string {
+	// Implement logic to retrieve active model if stored within context
+	return ""
+}
+
+func BuildEphemeralContext(input string) []Message {
+	return []Message{
+		{Role: "system", Content: "You are a helpful assistant."},
+		{Role: "user", Content: input},
+	}
+}
