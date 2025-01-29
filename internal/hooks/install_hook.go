@@ -63,9 +63,10 @@ fi`
 		fmt.Println(colorutils.Green("[PRBuddy-Go] post-commit hook updated with PRBuddy logic."))
 	} else {
 		// If the hook doesn't exist, create a new one
-		newHookContent := `#!/bin/bash
-# Added by PRBuddy-Go
-` + prBuddyHookContent
+		newHookContent := `
+						#!/bin/bash
+						# Added by PRBuddy-Go
+						` + prBuddyHookContent
 
 		err = os.WriteFile(postCommitPath, []byte(newHookContent), 0755)
 		if err != nil {
