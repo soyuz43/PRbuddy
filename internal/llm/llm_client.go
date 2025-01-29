@@ -84,98 +84,25 @@ type LLMResponse struct {
 	} `json:"message"`
 }
 
-// HandleExtensionQuickAssist handles extension requests with conversation context
-// If ephemeral == true, the conversation is only kept in-memory (no disk saving).
-// conversationID: optional ID. If not found and ephemeral, a new ephemeral conversation is created.
-func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (string, error) {
+// HandleQuickAssist handles ALL QuickAssist requests, whether from CLI or API.
+// This function assumes a persistent conversation.
+func HandleQuickAssist(conversationID, input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("no user message provided")
 	}
 
-	// Get existing conversation or create a new ephemeral one
+	// Get existing conversation or create a new persistent one
 	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
 	if !exists {
 		// Generate a new conversation ID if not provided or not found
 		if conversationID == "" {
-			conversationID = contextpkg.GenerateConversationID("ephemeral")
+			conversationID = contextpkg.GenerateConversationID("persistent")
 		}
-		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", ephemeral)
+		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", false)
 	}
 
-	// Add user message to the conversation
+	// Add user message
 	conv.AddMessage("user", input)
-
-	// If ephemeral, initialize and use DCE
-	if ephemeral {
-		// Initialize DCE instance
-		dceInstance := dce.NewDCE()
-		if err := dceInstance.Activate(input); err != nil {
-			return "", fmt.Errorf("DCE activation failed: %w", err)
-		}
-		defer dceInstance.Deactivate(conversationID)
-
-		// Build task list with logging
-		taskList, buildLogs, err := dceInstance.BuildTaskList(input)
-		if err != nil {
-			return "", fmt.Errorf("failed to build task list: %w", err)
-		}
-
-		// Print Task List
-		fmt.Println("=== Task List ===")
-		for i, task := range taskList {
-			fmt.Printf("Task %d:\n", i+1)
-			fmt.Printf("  Description: %s\n", task.Description)
-			if len(task.Files) > 0 {
-				fmt.Printf("  Files: %v\n", task.Files)
-			}
-			if len(task.Functions) > 0 {
-				fmt.Printf("  Functions: %v\n", task.Functions)
-			}
-			if len(task.Dependencies) > 0 {
-				fmt.Printf("  Dependencies: %v\n", task.Dependencies)
-			}
-			if len(task.Notes) > 0 {
-				fmt.Printf("  Notes: %v\n", task.Notes)
-			}
-		}
-		fmt.Println("==================")
-
-		// Add build logs to conversation and print to console
-		for _, logMsg := range buildLogs {
-			conv.AddMessage("system", "[DCE] "+logMsg)
-			fmt.Println("[DCE]", logMsg)
-		}
-
-		// Filter project data with logging
-		filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
-		if err != nil {
-			return "", fmt.Errorf("failed to filter project data: %w", err)
-		}
-
-		// Add filter logs to conversation and print to console
-		for _, logMsg := range filterLogs {
-			conv.AddMessage("system", "[DCE] "+logMsg)
-			fmt.Println("[DCE]", logMsg)
-		}
-
-		// Augment context with filtered data
-		augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
-		conv.SetMessages(augmentedContext)
-
-		// Save the concatenated context to a file for development
-		err = utils.SaveContextToFile(conv.ID, augmentedContext)
-		if err != nil {
-			// Log the error but do not fail the operation
-			logrus.Errorf("Failed to save context to file: %v", err)
-		}
-
-		// Save the concatenated context as a single string
-		err = utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext)
-		if err != nil {
-			// Log the error but do not fail the operation
-			logrus.Errorf("Failed to save concatenated context to file: %v", err)
-		}
-	}
 
 	// Build the final context for LLM response generation
 	context := conv.BuildContext()
@@ -192,19 +119,104 @@ func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (s
 	return response, nil
 }
 
-// HandleCLIQuickAssist handles CLI requests (purely stateless for quick usage)
-func HandleCLIQuickAssist(input string) (string, error) {
-	// Build stateless context
-	statelessMessages := []contextpkg.Message{
-		{Role: "system", Content: "You are a helpful assistant."},
-		{Role: "user", Content: input},
+// HandleDCERequest handles ephemeral (DCE-driven) requests,
+// creating a brand-new ephemeral conversation, running DCE logic, and returning the LLM response.
+func HandleDCERequest(conversationID, input string) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("no user message provided")
 	}
 
-	// Get response from LLM
-	response, err := llmClient.GetChatResponse(statelessMessages)
-	if err != nil {
-		return "", err
+	// Get existing conversation or create a new ephemeral one
+	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
+	if !exists {
+		// Generate a new conversation ID if not provided or not found
+		if conversationID == "" {
+			conversationID = contextpkg.GenerateConversationID("ephemeral")
+		}
+		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", true)
 	}
+
+	// Add user message to the conversation
+	conv.AddMessage("user", input)
+
+	// Initialize and use DCE
+	dceInstance := dce.NewDCE()
+	if err := dceInstance.Activate(input); err != nil {
+		return "", fmt.Errorf("DCE activation failed: %w", err)
+	}
+	defer dceInstance.Deactivate(conversationID)
+
+	// Build task list with logging
+	taskList, buildLogs, err := dceInstance.BuildTaskList(input)
+	if err != nil {
+		return "", fmt.Errorf("failed to build task list: %w", err)
+	}
+
+	// Print Task List (optional debug logs)
+	fmt.Println("=== Task List ===")
+	for i, task := range taskList {
+		fmt.Printf("Task %d:\n", i+1)
+		fmt.Printf("  Description: %s\n", task.Description)
+		if len(task.Files) > 0 {
+			fmt.Printf("  Files: %v\n", task.Files)
+		}
+		if len(task.Functions) > 0 {
+			fmt.Printf("  Functions: %v\n", task.Functions)
+		}
+		if len(task.Dependencies) > 0 {
+			fmt.Printf("  Dependencies: %v\n", task.Dependencies)
+		}
+		if len(task.Notes) > 0 {
+			fmt.Printf("  Notes: %v\n", task.Notes)
+		}
+	}
+	fmt.Println("==================")
+
+	// Add build logs to conversation and print to console
+	for _, logMsg := range buildLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+		fmt.Println("[DCE]", logMsg)
+	}
+
+	// Filter project data with logging
+	filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
+	if err != nil {
+		return "", fmt.Errorf("failed to filter project data: %w", err)
+	}
+
+	// Add filter logs to conversation and print to console
+	for _, logMsg := range filterLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+		fmt.Println("[DCE]", logMsg)
+	}
+
+	// Augment context with filtered data
+	augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
+	conv.SetMessages(augmentedContext)
+
+	// Save the concatenated context to a file for development
+	if err := utils.SaveContextToFile(conv.ID, augmentedContext); err != nil {
+		// Log the error but do not fail the operation
+		logrus.Errorf("Failed to save context to file: %v", err)
+	}
+
+	// Save the concatenated context as a single string
+	if err := utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext); err != nil {
+		// Log the error but do not fail the operation
+		logrus.Errorf("Failed to save concatenated context to file: %v", err)
+	}
+
+	// Build the final context for LLM response generation
+	context := conv.BuildContext()
+
+	// Retrieve response from LLM
+	response, err := llmClient.GetChatResponse(context)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from LLM: %w", err)
+	}
+
+	// Add assistant response to the conversation
+	conv.AddMessage("assistant", response)
 
 	return response, nil
 }
@@ -245,10 +257,10 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 	return conversationID, response, nil
 }
 
-// ContinuePRConversation continues an existing PR conversation
+// ContinuePRConversation continues an existing PR conversation (persistent)
 func ContinuePRConversation(conversationID, input string) (string, error) {
-	// For PR conversations, ephemeral=false, so we skip that param
-	return HandleExtensionQuickAssist(conversationID, input, false)
+	// Just reuse HandleQuickAssist for continuing a normal (persistent) conversation
+	return HandleQuickAssist(conversationID, input)
 }
 
 // GeneratePreDraftPR fetches the latest commit message and diffs
