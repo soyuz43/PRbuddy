@@ -1,3 +1,5 @@
+// internal/dce/dce.go
+
 package dce
 
 import (
@@ -10,12 +12,12 @@ import (
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 )
 
-// DCE is the interface describing dynamic context methods
+// DCE is the interface describing dynamic context methods with logging
 type DCE interface {
 	Activate(task string) error
 	Deactivate(conversationID string) error
-	BuildTaskList(input string) ([]contextpkg.Task, error)
-	FilterProjectData(tasks []contextpkg.Task) ([]FilteredData, error)
+	BuildTaskList(input string) ([]contextpkg.Task, []string, error)
+	FilterProjectData(tasks []contextpkg.Task) ([]FilteredData, []string, error)
 	AugmentContext(context []contextpkg.Message, filteredData []FilteredData) []contextpkg.Message
 }
 
@@ -45,38 +47,44 @@ func (d *DefaultDCE) Deactivate(conversationID string) error {
 	return nil
 }
 
-// BuildTaskList generates a list of tasks based on user input
-//  1. Match user keywords to known files (via `git ls-files`)
-//  2. Extract function definitions from matched files via regex
-func (d *DefaultDCE) BuildTaskList(input string) ([]contextpkg.Task, error) {
-	fmt.Printf("[DCE] Building task list from user input: %s\n", input)
+// BuildTaskList generates a list of tasks based on user input and returns logs
+func (d *DefaultDCE) BuildTaskList(input string) ([]contextpkg.Task, []string, error) {
+	logs := []string{fmt.Sprintf("[DCE] Building task list from input: %q", input)}
 
 	// 1. Grab the list of all tracked files
 	trackedFiles, err := d.getGitTrackedFiles()
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve git ls-files: %w", err)
+		return nil, logs, fmt.Errorf("failed to retrieve git ls-files: %w", err)
 	}
+	logs = append(logs, fmt.Sprintf("[DCE] Found %d tracked files", len(trackedFiles)))
 
 	// 2. Determine which files might be relevant
-	//    Simple heuristic: split user input on spaces, check if any token is in filename
 	matchedFiles := d.matchFilesByKeywords(trackedFiles, input)
+	logs = append(logs, fmt.Sprintf("[DCE] Matched %d files by keywords: %v", len(matchedFiles), matchedFiles))
+
 	if len(matchedFiles) == 0 {
 		// If no direct matches, create a single catch-all "task" with no files.
 		t := contextpkg.Task{
 			Description:  input,
+			Notes:        []string{"No direct file matches found. Developer can add them manually."},
 			Files:        nil,
 			Functions:    nil,
 			Dependencies: nil,
-			Notes:        []string{"No direct file matches found. Developer can add them manually."},
 		}
-		return []contextpkg.Task{t}, nil
+		logs = append(logs, "[DCE] No file matches found - created a catch-all task")
+		return []contextpkg.Task{t}, logs, nil
 	}
 
 	// 3. Extract function names from each matched file
 	allFunctions := make([]string, 0)
 	for _, f := range matchedFiles {
 		funcs := d.extractFunctionsFromFile(f)
-		allFunctions = append(allFunctions, funcs...)
+		if len(funcs) > 0 {
+			logs = append(logs, fmt.Sprintf("[DCE] Extracted %d functions from %s: %v", len(funcs), f, funcs))
+			allFunctions = append(allFunctions, funcs...)
+		} else {
+			logs = append(logs, fmt.Sprintf("[DCE] No functions found in %s", f))
+		}
 	}
 
 	// 4. Create a single “mega” Task containing these matched files/functions
@@ -86,24 +94,25 @@ func (d *DefaultDCE) BuildTaskList(input string) ([]contextpkg.Task, error) {
 			Files:        matchedFiles,
 			Functions:    allFunctions,
 			Dependencies: nil, // We'll populate these in FilterProjectData
-			Notes: []string{
-				"Matched via user input + simple filename heuristics",
-			},
+			Notes:        []string{"Matched via user input + simple filename heuristics"},
 		},
 	}
-	return taskList, nil
+	logs = append(logs, fmt.Sprintf("[DCE] Created task with %d files and %d functions", len(matchedFiles), len(allFunctions)))
+
+	return taskList, logs, nil
 }
 
 // FilterProjectData uses `git diff` to discover changed functions/files,
-// then marks them as dependencies or adds notes for the tasks.
-func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData, error) {
-	fmt.Println("[DCE] Filtering project data based on tasks + git diff")
+// then marks them as dependencies or adds notes for the tasks. Returns logs.
+func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData, []string, error) {
+	logs := []string{"[DCE] Filtering project data based on tasks"}
 
 	// 1. Grab the changed lines from Git diff
 	diffOutput, err := d.getGitDiff()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get git diff: %w", err)
+		return nil, logs, fmt.Errorf("failed to get git diff: %w", err)
 	}
+	logs = append(logs, "[DCE] Retrieved git diff output")
 
 	// 2. Search for function-like patterns in the diff (leading plus sign for new lines)
 	funcRegex := regexp.MustCompile(`(?m)^\+.*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`)
@@ -111,16 +120,20 @@ func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData,
 
 	var changedFuncs []string
 	for _, m := range matches {
-		changedFuncs = append(changedFuncs, m[2]) // capture function name group
+		if len(m) >= 3 {
+			changedFuncs = append(changedFuncs, m[2]) // capture function name group
+		}
 	}
+
+	logs = append(logs, fmt.Sprintf("[DCE] Found %d changed functions: %v", len(changedFuncs), changedFuncs))
 
 	// 3. For each changed function, update the relevant Task’s Dependencies/Notes
 	for i := range tasks {
 		for _, cf := range changedFuncs {
-			// If tasks[i].Functions already has cf, highlight it
 			if stringSliceContains(tasks[i].Functions, cf) {
 				tasks[i].Dependencies = append(tasks[i].Dependencies, cf)
 				tasks[i].Notes = append(tasks[i].Notes, fmt.Sprintf("Function %s changed in recent diff.", cf))
+				logs = append(logs, fmt.Sprintf("[DCE] Added dependency %q to task %q", cf, tasks[i].Description))
 			}
 		}
 	}
@@ -129,12 +142,12 @@ func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData,
 	fd := []FilteredData{
 		{
 			FileHierarchy: "N/A (use file path matching if needed)",
-			LinterResults: fmt.Sprintf("Detected %d changed function(s) in diff: %v",
-				len(changedFuncs), changedFuncs),
+			LinterResults: fmt.Sprintf("Detected %d changed function(s) in diff: %v", len(changedFuncs), changedFuncs),
 		},
 	}
+	logs = append(logs, "[DCE] Created filtered data summary")
 
-	return fd, nil
+	return fd, logs, nil
 }
 
 // AugmentContext adds a system-level message summarizing tasks & changes
@@ -201,7 +214,9 @@ func (d *DefaultDCE) extractFunctionsFromFile(filePath string) []string {
 
 	var funcs []string
 	for _, match := range matches {
-		funcs = append(funcs, match[2]) // e.g. "myFunction"
+		if len(match) >= 3 {
+			funcs = append(funcs, match[2]) // e.g. "myFunction"
+		}
 	}
 	return funcs
 }
@@ -224,4 +239,18 @@ func stringSliceContains(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+// FindChangedFunctions extracts changed function names from git diff output
+func (d *DefaultDCE) findChangedFunctions(diffOutput string) []string {
+	funcRegex := regexp.MustCompile(`(?m)^\+.*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`)
+	matches := funcRegex.FindAllStringSubmatch(diffOutput, -1)
+
+	var changedFuncs []string
+	for _, m := range matches {
+		if len(m) >= 3 {
+			changedFuncs = append(changedFuncs, m[2]) // capture function name group
+		}
+	}
+	return changedFuncs
 }
