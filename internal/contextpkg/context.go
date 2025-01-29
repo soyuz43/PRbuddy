@@ -127,7 +127,7 @@ func (c *Conversation) BuildContext() []Message {
 		} else {
 			context = append(context, Message{
 				Role:    "user",
-				Content: fmt.Sprintf("Initial code changes (truncated):\n%s", truncateDiff(c.InitialDiff)),
+				Content: fmt.Sprintf("Initial code changes (truncated):\n%s", TruncateDiff(c.InitialDiff, 1000)),
 			})
 			c.DiffTruncation = true
 		}
@@ -145,24 +145,95 @@ func (c *Conversation) SetMessages(messages []Message) {
 	c.Messages = messages
 }
 
-// truncateDiff reduces the size of large diffs while preserving important context
-func truncateDiff(diff string) string {
-	const maxLines = 100
+// truncateDiff intelligently reduces the diff size while preserving key information.
+func TruncateDiff(diff string, maxLines int) string {
 	lines := splitLines(diff)
 	if len(lines) <= maxLines {
 		return diff
 	}
 
-	// Keep first and last 50 lines
-	start := lines[:50]
-	end := lines[len(lines)-50:]
-	return joinLines(append(start, end...))
+	var truncated []string
+	var currentFile string
+	var addedLines []string
+	var removedCount int
+
+	for _, line := range lines {
+		// Detect file changes (e.g., `diff --git a/path/to/file b/path/to/file`)
+		if strings.HasPrefix(line, "diff --git") {
+			// Store previous file's changes if we hit a new file
+			if currentFile != "" {
+				truncated = append(truncated, summarizeFileChanges(currentFile, addedLines, removedCount))
+				addedLines = nil
+				removedCount = 0
+			}
+			currentFile = extractFilePath(line)
+			truncated = append(truncated, line)
+		} else if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+			// Keep file modification headers
+			truncated = append(truncated, line)
+		} else if strings.HasPrefix(line, "new file mode") || strings.HasPrefix(line, "deleted file mode") {
+			// Keep metadata for file creation/deletion
+			truncated = append(truncated, line)
+		} else if strings.HasPrefix(line, "+") {
+			// Store added lines (prioritize keeping these)
+			addedLines = append(addedLines, line)
+		} else if strings.HasPrefix(line, "-") {
+			// Count removed lines (we will discard most of them later)
+			removedCount++
+		} else {
+			// Keep general metadata (e.g., `@@ -12,5 +12,8 @@`)
+			truncated = append(truncated, line)
+		}
+
+		// Stop adding new lines if we exceed maxLines
+		if len(truncated)+len(addedLines) > maxLines {
+			break
+		}
+	}
+
+	// Add last file's summary if needed
+	if currentFile != "" {
+		truncated = append(truncated, summarizeFileChanges(currentFile, addedLines, removedCount))
+	}
+
+	return joinLines(truncated)
 }
 
+// summarizeFileChanges generates a summary of a file's modifications.
+func summarizeFileChanges(filePath string, addedLines []string, removedCount int) string {
+	var summary []string
+	summary = append(summary, "### Summary for "+filePath)
+
+	// Include some added lines
+	if len(addedLines) > 5 {
+		summary = append(summary, addedLines[:5]...)
+	} else {
+		summary = append(summary, addedLines...)
+	}
+
+	// Mention removed lines without including them
+	if removedCount > 0 {
+		summary = append(summary, fmt.Sprintf("... [%d lines removed] ...", removedCount))
+	}
+
+	return joinLines(summary)
+}
+
+// extractFilePath extracts the file path from a `diff --git` line.
+func extractFilePath(line string) string {
+	parts := strings.Split(line, " ")
+	if len(parts) < 3 {
+		return "unknown_file"
+	}
+	return strings.TrimPrefix(parts[2], "b/")
+}
+
+// splitLines splits a string into lines.
 func splitLines(s string) []string {
 	return strings.Split(s, "\n")
 }
 
+// joinLines joins lines into a single string.
 func joinLines(lines []string) string {
 	return strings.Join(lines, "\n")
 }

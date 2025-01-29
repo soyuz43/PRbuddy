@@ -263,7 +263,6 @@ func ContinuePRConversation(conversationID, input string) (string, error) {
 	return HandleQuickAssist(conversationID, input)
 }
 
-// GeneratePreDraftPR fetches the latest commit message and diffs
 func GeneratePreDraftPR() (string, string, error) {
 	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
 	if err != nil {
@@ -275,7 +274,10 @@ func GeneratePreDraftPR() (string, string, error) {
 		return "", "", errors.Wrap(err, "failed to get git diff")
 	}
 
-	return commitMsg, diff, nil
+	// Intelligent truncation: prioritize added lines and metadata
+	truncatedDiff := contextpkg.TruncateDiff(diff, 1000) // Adjust max lines as needed
+
+	return commitMsg, truncatedDiff, nil
 }
 
 // GenerateDraftPR uses the LLM's chat endpoint to generate a PR draft (stateless)
