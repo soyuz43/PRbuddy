@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -471,6 +473,14 @@ func SetModelHandler(w http.ResponseWriter, r *http.Request) {
 //	{
 //	  "taskListInput": "User-defined task input"
 //	}
+//
+// DCEHandler handles Dynamic Context Engine requests
+// POST /extension/dce
+// Request JSON format:
+//
+//	{
+//	  "taskListInput": "User-defined task input"
+//	}
 func DCEHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -490,29 +500,42 @@ func DCEHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate a unique conversation ID for this DCE operation
+	convID := contextpkg.GenerateConversationID("dce")
+	conv := contextpkg.ConversationManagerInstance.StartConversation(convID, "", true)
+	defer contextpkg.ConversationManagerInstance.RemoveConversation(convID)
+
 	// Initialize DCE
 	dceInstance := dce.NewDCE()
 	if err := dceInstance.Activate(req.TaskListInput); err != nil {
 		http.Error(w, fmt.Sprintf("DCE activation failed: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer dceInstance.Deactivate("dce-conversation-id") // Use appropriate conversation ID
+	defer dceInstance.Deactivate(convID)
 
-	// Example: Build dynamic context based on task list
-	taskList, err := dceInstance.BuildTaskList(req.TaskListInput)
+	// Build task list with logging
+	taskList, buildLogs, err := dceInstance.BuildTaskList(req.TaskListInput)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build task list: %v", err), http.StatusInternalServerError)
 		return
 	}
+	for _, logMsg := range buildLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+	}
 
-	filteredData, err := dceInstance.FilterProjectData(taskList)
+	// Filter project data with logging
+	filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to filter project data: %v", err), http.StatusInternalServerError)
 		return
 	}
+	for _, logMsg := range filterLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+	}
 
 	// Augment context with filtered data
 	augmentedContext := dceInstance.AugmentContext(contextpkg.BuildEphemeralContext(req.TaskListInput), filteredData)
+	conv.SetMessages(augmentedContext)
 
 	// Send request to LLM
 	response, err := llmClient.GetChatResponse(augmentedContext)
@@ -521,10 +544,21 @@ func DCEHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add assistant response to the conversation
+	conv.AddMessage("assistant", response)
+
 	// Optionally, handle response (e.g., update context, provide feedback)
 
+	// Save DCE logs to separate log files
+	if err := saveDCELogs(conv); err != nil {
+		fmt.Printf("Failed to save DCE logs: %v\n", err)
+	}
+
 	// Return response
-	responseMap := map[string]string{"response": response}
+	responseMap := map[string]string{
+		"response":        response,
+		"conversation_id": convID,
+	}
 	jsonResponse, err := utils.MarshalJSON(responseMap)
 	if err != nil {
 		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
@@ -533,6 +567,29 @@ func DCEHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(jsonResponse))
+}
+
+// saveDCELogs saves DCE logs from the conversation to separate log files
+func saveDCELogs(conv *contextpkg.Conversation) error {
+	repoPath, err := utils.GetRepoPath()
+	if err != nil {
+		return err
+	}
+
+	logDir := filepath.Join(repoPath, ".git", "pr_buddy_db", "dce_logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return err
+	}
+
+	logContent := fmt.Sprintf("DCE Log for %s\n\n", conv.ID)
+	for _, msg := range conv.Messages {
+		if msg.Role == "system" && strings.HasPrefix(msg.Content, "[DCE]") {
+			logContent += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
+		}
+	}
+
+	filename := fmt.Sprintf("dce-%s.log", time.Now().Format("20060102-150405"))
+	return os.WriteFile(filepath.Join(logDir, filename), []byte(logContent), 0644)
 }
 
 // ServeCmd is the Cobra command to start the API server

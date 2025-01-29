@@ -3,12 +3,13 @@
 package llm
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"net/http"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -43,7 +44,7 @@ func (c *DefaultLLMClient) GetChatResponse(messages []contextpkg.Message) (strin
 		return "", errors.Wrap(err, "failed to marshal request body")
 	}
 
-	resp, err := http.Post(endpoint+"/api/chat", "application/json", bytes.NewBuffer([]byte(jsonBody)))
+	resp, err := http.Post(endpoint+"/api/chat", "application/json", strings.NewReader(jsonBody))
 	if err != nil {
 		return "", errors.Wrap(err, "failed to send POST request to LLM")
 	}
@@ -113,19 +114,25 @@ func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (s
 		}
 		defer dceInstance.Deactivate(conversationID)
 
-		// Build task list from user input
-		taskList, err := dceInstance.BuildTaskList(input)
+		// Build task list with logging
+		taskList, buildLogs, err := dceInstance.BuildTaskList(input)
 		if err != nil {
 			return "", fmt.Errorf("failed to build task list: %w", err)
 		}
+		for _, logMsg := range buildLogs {
+			conv.AddMessage("system", "[DCE] "+logMsg)
+		}
 
-		// Filter project data based on tasks
-		filteredData, err := dceInstance.FilterProjectData(taskList)
+		// Filter project data with logging
+		filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
 		if err != nil {
 			return "", fmt.Errorf("failed to filter project data: %w", err)
 		}
+		for _, logMsg := range filterLogs {
+			conv.AddMessage("system", "[DCE] "+logMsg)
+		}
 
-		// Build initial context and augment with filtered data
+		// Augment context with filtered data
 		augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
 		conv.SetMessages(augmentedContext)
 	}
