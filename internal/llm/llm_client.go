@@ -119,8 +119,31 @@ func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (s
 		if err != nil {
 			return "", fmt.Errorf("failed to build task list: %w", err)
 		}
+
+		// Print Task List
+		fmt.Println("=== Task List ===")
+		for i, task := range taskList {
+			fmt.Printf("Task %d:\n", i+1)
+			fmt.Printf("  Description: %s\n", task.Description)
+			if len(task.Files) > 0 {
+				fmt.Printf("  Files: %v\n", task.Files)
+			}
+			if len(task.Functions) > 0 {
+				fmt.Printf("  Functions: %v\n", task.Functions)
+			}
+			if len(task.Dependencies) > 0 {
+				fmt.Printf("  Dependencies: %v\n", task.Dependencies)
+			}
+			if len(task.Notes) > 0 {
+				fmt.Printf("  Notes: %v\n", task.Notes)
+			}
+		}
+		fmt.Println("==================")
+
+		// Add build logs to conversation and print to console
 		for _, logMsg := range buildLogs {
 			conv.AddMessage("system", "[DCE] "+logMsg)
+			fmt.Println("[DCE]", logMsg)
 		}
 
 		// Filter project data with logging
@@ -128,13 +151,30 @@ func HandleExtensionQuickAssist(conversationID, input string, ephemeral bool) (s
 		if err != nil {
 			return "", fmt.Errorf("failed to filter project data: %w", err)
 		}
+
+		// Add filter logs to conversation and print to console
 		for _, logMsg := range filterLogs {
 			conv.AddMessage("system", "[DCE] "+logMsg)
+			fmt.Println("[DCE]", logMsg)
 		}
 
 		// Augment context with filtered data
 		augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
 		conv.SetMessages(augmentedContext)
+
+		// Save the concatenated context to a file for development
+		err = utils.SaveContextToFile(conv.ID, augmentedContext)
+		if err != nil {
+			// Log the error but do not fail the operation
+			logrus.Errorf("Failed to save context to file: %v", err)
+		}
+
+		// Save the concatenated context as a single string
+		err = utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext)
+		if err != nil {
+			// Log the error but do not fail the operation
+			logrus.Errorf("Failed to save concatenated context to file: %v", err)
+		}
 	}
 
 	// Build the final context for LLM response generation

@@ -114,7 +114,7 @@ func (c *Conversation) BuildContext() []Message {
 	// Add system message
 	context = append(context, Message{
 		Role:    "system",
-		Content: "You are a helpful assistant for creating and refining pull requests.",
+		Content: "You are a developer assistant designed to use the context below to make informed and relevant insights based on the nature of the question and the context below.",
 	})
 
 	// Add initial diff if applicable
