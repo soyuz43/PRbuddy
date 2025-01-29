@@ -4,7 +4,7 @@ package dce
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -204,7 +204,7 @@ func (d *DefaultDCE) matchFilesByKeywords(allFiles []string, userInput string) [
 
 // Regex-based function extraction from a file
 func (d *DefaultDCE) extractFunctionsFromFile(filePath string) []string {
-	data, err := os.ReadFile(filePath)
+	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil
 	}
