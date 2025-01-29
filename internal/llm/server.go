@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
-	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -129,29 +128,29 @@ func StartServer(cfg ServerConfig) error {
 }
 
 func registerHandlers(router *http.ServeMux) {
-	// Quick Assist (ephemeral or short-lived) conversation
-	router.HandleFunc("/extension/quick-assist", QuickAssistHandler)
+	// ----------------------------------------------------------------
+	// 1. QuickAssist route (PERSISTENT conversation only)
+	// ----------------------------------------------------------------
+	router.HandleFunc("/quickassist", quickAssistHandler)
 
-	// Endpoint to clear ephemeral conversation context
-	router.HandleFunc("/extension/quick-assist/clear", QuickAssistClearHandler)
+	// ----------------------------------------------------------------
+	// 2. DCE route (EPHEMERAL conversation, specialized logic)
+	// ----------------------------------------------------------------
+	router.HandleFunc("/dce", dceHandler)
+
+	// Endpoint to clear a conversation context (if you still want it)
+	router.HandleFunc("/quickassist/clear", quickAssistClearHandler)
 
 	// Draft context management
-	router.HandleFunc("/extension/drafts", SaveDraftHandler)
-	router.HandleFunc("/extension/drafts/load", LoadDraftHandler)
+	router.HandleFunc("/extension/drafts", saveDraftHandler)
+	router.HandleFunc("/extension/drafts/load", loadDraftHandler)
 
 	// Summaries / 'what' functionality
-	router.HandleFunc("/what", WhatHandler)
+	router.HandleFunc("/what", whatHandler)
 
-	// -------------------------
-	//  NEW: Model Management
-	// -------------------------
-	router.HandleFunc("/extension/models", ListModelsHandler)
-	router.HandleFunc("/extension/model", SetModelHandler)
-
-	// -------------------------
-	//  NEW: DCE Endpoint
-	// -------------------------
-	router.HandleFunc("/extension/dce", DCEHandler)
+	// Model management
+	router.HandleFunc("/extension/models", listModelsHandler)
+	router.HandleFunc("/extension/model", setModelHandler)
 }
 
 func manageServerLifecycle(server *http.Server, listener net.Listener, timeout time.Duration) error {
@@ -191,20 +190,38 @@ func manageServerLifecycle(server *http.Server, listener net.Listener, timeout t
 	return nil
 }
 
-// -------------------
-//    HTTP Handlers
-// -------------------
+// ServeCmd is the Cobra command to start the API server
+var ServeCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start API server for extension integration",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg := ServerConfig{
+			Host:              defaultHost,
+			InactivityTimeout: defaultInactivityTimeout,
+		}
 
-// QuickAssistHandler handles ephemeral or short-lived user queries
-// POST /extension/quick-assist
+		if err := StartServer(cfg); err != nil {
+			fmt.Printf("Server startup failed: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
+// ------------------------------------------------------
+//     HTTP Handlers
+// ------------------------------------------------------
+
+// quickAssistHandler handles PERSISTENT conversation route:
+//
+//	POST /quickassist
+//
 // Request JSON format:
 //
 //	{
-//	  "conversationId": "abc123",  optional; if absent, a new ephemeral conversation is created
-//	  "message": "user's question",
-//	  "ephemeral": true
+//	  "conversationId": "abc123", // optional; if absent => create new persistent conversation
+//	  "input": "user's question"
 //	}
-func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
+func quickAssistHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -212,17 +229,16 @@ func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		ConversationID string `json:"conversationId"`
-		Message        string `json:"message"`
-		Ephemeral      bool   `json:"ephemeral"`
+		Input          string `json:"input"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 
-	response, err := HandleExtensionQuickAssist(req.ConversationID, req.Message, req.Ephemeral)
+	response, err := HandleQuickAssist(req.ConversationID, req.Input)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error in QuickAssist: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -237,15 +253,57 @@ func QuickAssistHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// QuickAssistClearHandler allows a client (e.g., VSCode extension)
-// to clear an ephemeral conversation from memory
-// POST /extension/quick-assist/clear
+// dceHandler handles EPHEMERAL conversation route for DCE logic:
+//
+//	POST /dce
+//
+// Request JSON format:
+//
+//	{
+//	  "conversationId": "abc123", // optional; if absent => create ephemeral conversation
+//	  "input": "user input or instructions for DCE"
+//	}
+func dceHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ConversationID string `json:"conversationId"`
+		Input          string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+
+	response, err := HandleDCERequest(req.ConversationID, req.Input)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error in DCERequest: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	responseMap := map[string]string{"response": response}
+	jsonResponse, err := utils.MarshalJSON(responseMap)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(jsonResponse))
+}
+
+// quickAssistClearHandler allows a client (e.g., an IDE extension)
+// to clear a conversation from memory if needed.
+// POST /quickassist/clear
 // Request JSON format:
 //
 //	{
 //	  "conversationId": "abc123"
 //	}
-func QuickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
+func quickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -278,9 +336,16 @@ func QuickAssistClearHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// SaveDraftHandler handles saving a conversation/draft context to disk
+// saveDraftHandler handles saving conversation/draft context to disk
 // POST /extension/drafts
-func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
+// Request JSON format:
+//
+//	{
+//	  "branch": "some-branch",
+//	  "commit": "some-commit",
+//	  "messages": [...messages...]
+//	}
+func saveDraftHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -301,7 +366,6 @@ func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "branch and commit are required", http.StatusBadRequest)
 		return
 	}
-
 	if len(request.Messages) == 0 {
 		http.Error(w, "messages are required", http.StatusBadRequest)
 		return
@@ -323,9 +387,15 @@ func SaveDraftHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// LoadDraftHandler retrieves a saved conversation/draft context from disk
+// loadDraftHandler retrieves a saved conversation/draft context
 // POST /extension/drafts/load
-func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
+// Request JSON format:
+//
+//	{
+//	  "branch": "some-branch",
+//	  "commit": "some-commit"
+//	}
+func loadDraftHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -366,9 +436,9 @@ func LoadDraftHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// WhatHandler - Summarize "what changed"
+// whatHandler handles summarizing "what changed"
 // GET or POST /what
-func WhatHandler(w http.ResponseWriter, r *http.Request) {
+func whatHandler(w http.ResponseWriter, r *http.Request) {
 	summary, err := GenerateWhatSummary()
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -390,13 +460,9 @@ func WhatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// ----------------------
-//   NEW: Model Endpoints
-// ----------------------
-
-// ListModelsHandler returns the list of models Ollama has loaded
+// listModelsHandler returns the list of models Ollama has loaded
 // GET /extension/models
-func ListModelsHandler(w http.ResponseWriter, r *http.Request) {
+func listModelsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -418,14 +484,14 @@ func ListModelsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonResponse))
 }
 
-// SetModelHandler updates the in-memory model that PRBuddy-Go will use
+// setModelHandler updates the in-memory model that PRBuddy-Go will use
 // POST /extension/model
 // Request JSON format:
 //
 //	{
 //	  "model": "mistral:latest"
 //	}
-func SetModelHandler(w http.ResponseWriter, r *http.Request) {
+func setModelHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -443,7 +509,7 @@ func SetModelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally, you can confirm that 'body.Model' is in the list from fetchOllamaModels()
+	// Optionally confirm that 'body.Model' is in the list from fetchOllamaModels()
 	setActiveModel(body.Model)
 
 	responseMap := map[string]string{
@@ -458,135 +524,4 @@ func SetModelHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(jsonResponse))
-}
-
-// ----------------------
-//   NEW: DCE Endpoint
-// ----------------------
-
-// DCEHandler handles Dynamic Context Engine requests
-// POST /extension/dce
-// Request JSON format:
-//
-//	{
-//	  "taskListInput": "User-defined task input"
-//	}
-func DCEHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		TaskListInput string `json:"taskListInput"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request format", http.StatusBadRequest)
-		return
-	}
-
-	if req.TaskListInput == "" {
-		http.Error(w, "taskListInput is required", http.StatusBadRequest)
-		return
-	}
-
-	// Generate a unique conversation ID for this DCE operation
-	convID := contextpkg.GenerateConversationID("dce")
-	conv := contextpkg.ConversationManagerInstance.StartConversation(convID, "", true)
-	defer contextpkg.ConversationManagerInstance.RemoveConversation(convID)
-
-	// Initialize DCE
-	dceInstance := dce.NewDCE()
-	if err := dceInstance.Activate(req.TaskListInput); err != nil {
-		http.Error(w, fmt.Sprintf("DCE activation failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer dceInstance.Deactivate(convID)
-
-	// Build task list with logging
-	taskList, buildLogs, err := dceInstance.BuildTaskList(req.TaskListInput)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to build task list: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Add build logs to conversation and optionally print to console
-	for _, logMsg := range buildLogs {
-		conv.AddMessage("system", "[DCE] "+logMsg)
-		// Optionally, print to console
-		fmt.Println("[DCE]", logMsg)
-	}
-
-	// Filter project data with logging
-	filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to filter project data: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Add filter logs to conversation and optionally print to console
-	for _, logMsg := range filterLogs {
-		conv.AddMessage("system", "[DCE] "+logMsg)
-		// Optionally, print to console
-		fmt.Println("[DCE]", logMsg)
-	}
-
-	// Augment context with filtered data
-	augmentedContext := dceInstance.AugmentContext(contextpkg.BuildEphemeralContext(req.TaskListInput), filteredData)
-	conv.SetMessages(augmentedContext)
-
-	// Save the concatenated context to a file for development
-	err = utils.SaveContextToFile(conv.ID, augmentedContext)
-	if err != nil {
-		// Log the error but do not fail the operation
-		fmt.Printf("Failed to save context to file: %v\n", err)
-	}
-
-	// Save the concatenated context as a single string
-	err = utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext)
-	if err != nil {
-		// Log the error but do not fail the operation
-		fmt.Printf("Failed to save concatenated context to file: %v\n", err)
-	}
-
-	// Send request to LLM
-	response, err := llmClient.GetChatResponse(augmentedContext)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("LLM request failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Add assistant response to the conversation
-	conv.AddMessage("assistant", response)
-
-	// Return response
-	responseMap := map[string]string{
-		"response":        response,
-		"conversation_id": convID,
-	}
-	jsonResponse, err := utils.MarshalJSON(responseMap)
-	if err != nil {
-		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(jsonResponse))
-}
-
-// ServeCmd is the Cobra command to start the API server
-var ServeCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start API server for extension integration",
-	Run: func(cmd *cobra.Command, args []string) {
-		cfg := ServerConfig{
-			Host:              defaultHost,
-			InactivityTimeout: defaultInactivityTimeout,
-		}
-
-		if err := StartServer(cfg); err != nil {
-			fmt.Printf("Server startup failed: %v\n", err)
-			os.Exit(1)
-		}
-	},
 }
