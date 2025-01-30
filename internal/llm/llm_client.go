@@ -28,7 +28,7 @@ import (
 type LLMClient interface {
 	// For non-streaming calls
 	GetChatResponse(messages []contextpkg.Message) (string, error)
-	// For streaming calls (we'll accumulate chunks under the hood)
+	// For streaming calls (accumulate chunks under the hood)
 	StreamChatResponse(messages []contextpkg.Message) (<-chan string, error)
 }
 
@@ -84,12 +84,11 @@ func (c *DefaultLLMClient) GetChatResponse(messages []contextpkg.Message) (strin
 // STREAMING METHOD: StreamChatResponse
 //------------------------------------------------------------------------------
 
-// StreamChatResponse forcibly reads as soon as data arrives,
-// parsing line-delimited or chunked JSON objects in real time.
+// StreamChatResponse reads lines from Ollama’s /api/chat as soon as they arrive.
+// Each line is expected to be a complete JSON object. When "done" = true, we stop.
 func (c *DefaultLLMClient) StreamChatResponse(messages []contextpkg.Message) (<-chan string, error) {
 	model, endpoint := GetLLMConfig()
 
-	// Enable streaming in request body
 	reqBody := map[string]interface{}{
 		"model":    model,
 		"messages": messages,
@@ -116,7 +115,7 @@ func (c *DefaultLLMClient) StreamChatResponse(messages []contextpkg.Message) (<-
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 		return nil, fmt.Errorf("non-200 status code: %d", resp.StatusCode)
 	}
 
@@ -126,85 +125,38 @@ func (c *DefaultLLMClient) StreamChatResponse(messages []contextpkg.Message) (<-
 		defer resp.Body.Close()
 		defer close(outChan)
 
-		// We’ll accumulate response data here
-		var buffer strings.Builder
-
-		// We'll store partial lines or partial JSON objects in the buffer
-		// Then attempt to parse each time we read new data.
-		rd := bufio.NewReader(resp.Body)
-
-		for {
-			// Read as much as is currently available (non-blocking beyond what's arrived)
-			chunk, readErr := rd.ReadBytes('\n')
-			// If we can't find a newline, 'chunk' may contain partial data,
-			// but let's proceed with it anyway.
-
-			if len(chunk) > 0 {
-				buffer.Write(chunk) // Accumulate
-				// Attempt to parse all valid JSON objects from buffer
-				for {
-					msg, remain, parsed := tryParseJSON(buffer.String())
-					if !parsed {
-						break // can't parse a full JSON object yet
-					}
-
-					// We successfully parsed a chunk of JSON
-					buffer.Reset()
-					buffer.WriteString(remain) // keep leftover in buffer
-
-					// Process the chunk
-					if msg.Done {
-						// if "done": true, end streaming
-						return
-					}
-					if msg.Message != nil && msg.Message.Content != "" {
-						outChan <- msg.Message.Content
-					}
-				}
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
 			}
 
-			if readErr != nil {
-				// If we got EOF or any error, just break
+			var chunk OllamaStreamChunk
+			if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+				// Log parse errors but keep going
+				logrus.Errorf("Failed to unmarshal streaming chunk: %v", err)
+				continue
+			}
+
+			// If "done" is true, streaming has ended
+			if chunk.Done {
 				break
 			}
+
+			// Send content if present
+			if chunk.Message != nil && chunk.Message.Content != "" {
+				outChan <- chunk.Message.Content
+			}
+		}
+
+		// If there's a scanning error, log it
+		if err := scanner.Err(); err != nil {
+			logrus.Errorf("Scanner error while reading streaming response: %v", err)
 		}
 	}()
 
 	return outChan, nil
-}
-
-// tryParseJSON attempts to parse a single JSON object from the start of 'buf'.
-// If successful, returns the parsed OllamaStreamChunk, plus any 'remain' string (unparsed).
-// 'parsed' is true if we got a valid JSON object.
-func tryParseJSON(buf string) (OllamaStreamChunk, string, bool) {
-	var msg OllamaStreamChunk
-
-	// This naive approach tries to unmarshal the ENTIRE buffer as a single JSON object.
-	// If it fails, we do not parse anything.
-	err := json.Unmarshal([]byte(buf), &msg)
-	if err != nil {
-		return msg, buf, false
-	}
-
-	// If successful, 'buf' was exactly one JSON object. But Ollama may
-	// send multiple JSON objects in one chunk. We'll see if there's leftover
-	// beyond the first '}' (assuming no nested braces).
-	// A more robust approach might parse multiple objects in one pass,
-	// but let's keep it simple.
-
-	// We'll find the index of the final '}' of that object.
-	// Then we can keep leftover text beyond that for next parse.
-	endPos := strings.Index(buf, "}")
-	if endPos == -1 {
-		return msg, buf, false // no closing brace? shouldn't happen if we parsed successfully
-	}
-
-	// 'remain' is everything after that closing brace
-	remain := ""
-	if endPos+1 < len(buf) {
-		remain = strings.TrimSpace(buf[endPos+1:])
-	}
-	return msg, remain, true
 }
 
 //------------------------------------------------------------------------------
