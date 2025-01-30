@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/fatih/color"
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/dce"
@@ -69,7 +72,7 @@ func runInteractiveSession() {
 		case "quickassist", "qa":
 			handleQuickAssist(args, reader)
 		case "dce": // <-- New case for DCE
-			handleDCECommand(args)
+			handleDCECommand()
 		case "serve", "s":
 			handleServeCommand()
 		case "help", "h":
@@ -187,14 +190,14 @@ func startInteractiveQuickAssist(reader *bufio.Reader) {
 	}
 }
 
-func handleDCECommand(args []string) {
+func handleDCECommand() {
 	color.Cyan("\n[PRBuddy-Go] Dynamic Context Engine - Interactive Mode")
 	color.Yellow("Type 'exit' or 'q' to end the session.\n")
 
-	dceInstance := dce.NewDCE() // from your existing internal/dce/dce.go
+	dceInstance := dce.NewDCE()
 	reader := bufio.NewReader(os.Stdin)
 
-	// Step 1: Gather first user input to build initial tasks
+	// 1) Gather first user input to build initial tasks
 	color.Green("\nYou:")
 	fmt.Print("> ")
 	firstInput, err := reader.ReadString('\n')
@@ -217,30 +220,15 @@ func handleDCECommand(args []string) {
 	}
 
 	color.Yellow("\n[Initial DCE Logs]")
-	for _, line := range logs {
-		color.White("  • %s", line)
+	for _, lg := range logs {
+		color.White("  • %s", lg)
 	}
 
 	// Create a "LittleGuy" to track tasks & code snapshots
 	lg := dce.NewLittleGuy(tasks)
+	lg.StartMonitoring() // Optional background monitoring for diffs
 
-	// (Optional) If you want to pre-extract code for matched files:
-	// For example, define ExtractCodeForTasks in dce.go:
-	/*
-	   codeMap, err := dceInstance.(*dce.DefaultDCE).ExtractCodeForTasks(tasks)
-	   if err != nil {
-	       color.Red("Error extracting code: %v\n", err)
-	   } else {
-	       for path, content := range codeMap {
-	           lg.AddCodeSnippet(path, content)
-	       }
-	   }
-	*/
-
-	// Step 2: Start background monitoring for new changes
-	lg.StartMonitoring()
-
-	// Step 3: Enter multi-turn loop
+	// 2) Enter multi-turn loop
 	for {
 		color.Green("\nYou:")
 		fmt.Print("> ")
@@ -256,6 +244,15 @@ func handleDCECommand(args []string) {
 			return
 		}
 
+		// 3) Check if it's a recognized command
+		handled := dce.HandleDCECommandMenu(query, lg)
+		if handled {
+			// The input was consumed by a command (like "/tasks")
+			// Do not pass it to the LLM.
+			continue
+		}
+
+		// 4) Otherwise, proceed with ephemeral LLM usage
 		if query == "" {
 			color.Yellow("No input provided.\n")
 			continue
@@ -265,8 +262,6 @@ func handleDCECommand(args []string) {
 		messages := lg.BuildEphemeralContext(query)
 
 		// Send to the LLM
-		// (We can pass "" as conversationID to do ephemeral queries,
-		// or make a new conversationID if you'd prefer persistent conversation.)
 		llmResponse, err := llm.HandleQuickAssist("", joinMessages(messages))
 		if err != nil {
 			color.Red("LLM Error: %v\n", err)
@@ -275,22 +270,25 @@ func handleDCECommand(args []string) {
 
 		color.Blue("\nAssistant:")
 		color.Cyan(llmResponse)
-
-		// Optionally: after each user message, you might do an immediate
-		// diff check in the foreground. But we've already started
-		// background monitoring with lg.StartMonitoring().
 	}
+}
+
+// Helper function to join multiple context messages into a single string
+// for passing to LLM.HandleQuickAssist.
+func joinMessages(msgs []contextpkg.Message) string {
+	var sb strings.Builder
+	caser := cases.Title(language.English)
+	for _, m := range msgs {
+		sb.WriteString(caser.String(m.Role))
+		sb.WriteString(": ")
+		sb.WriteString(m.Content)
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
 }
 
 // A helper to join multiple context messages into a single string for
 // passing to HandleQuickAssist as if it’s one user query.
-func joinMessages(msgs []contextpkg.Message) string {
-	var sb strings.Builder
-	for _, m := range msgs {
-		sb.WriteString(fmt.Sprintf("%s: %s\n\n", strings.Title(m.Role), m.Content))
-	}
-	return sb.String()
-}
 
 func handleRemoveCommand() {
 	color.Red("\n⚠ WARNING: This will remove PRBuddy-Go from your repository! ⚠")
