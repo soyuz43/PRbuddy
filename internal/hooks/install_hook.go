@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/soyuz43/prbuddy-go/internal/utils"
+	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 	"github.com/soyuz43/prbuddy-go/internal/utils/colorutils"
 )
 
 func InstallPostCommitHook() error {
-	repoPath, err := utils.GetRepoPath()
+	repoPath, err := coreutils.GetRepoPath()
 	if err != nil {
 		return err
 	}

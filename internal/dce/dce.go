@@ -5,11 +5,11 @@ package dce
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
+	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 )
 
 // DCE is the interface describing dynamic context methods with logging
@@ -169,8 +169,7 @@ func (d *DefaultDCE) AugmentContext(context []contextpkg.Message, filteredData [
 
 // Retrieves a list of files tracked by Git
 func (d *DefaultDCE) getGitTrackedFiles() ([]string, error) {
-	cmd := exec.Command("git", "ls-files")
-	out, err := cmd.Output()
+	out, err := coreutils.ExecGit("ls-files")
 	if err != nil {
 		return nil, err
 	}
@@ -222,12 +221,7 @@ func (d *DefaultDCE) parseFunctions(content, pattern string) []string {
 
 // Runs `git diff` to see changes
 func (d *DefaultDCE) getGitDiff() (string, error) {
-	cmd := exec.Command("git", "diff", "--unified=0")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
+	return coreutils.ExecGit("diff", "--unified=0")
 }
 
 // Utility: check if a slice contains a string

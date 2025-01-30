@@ -225,7 +225,7 @@ func handleDCECommand() {
 	}
 
 	// Create a "LittleGuy" to track tasks & code snapshots
-	lg := dce.NewLittleGuy(tasks)
+	lg := dce.NewLittleGuy("", tasks)
 	lg.StartMonitoring() // Optional background monitoring for diffs
 
 	// 2) Enter multi-turn loop

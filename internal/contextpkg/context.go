@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 )
 
 // Message represents a chat message for LLM interactions
@@ -147,7 +149,7 @@ func (c *Conversation) SetMessages(messages []Message) {
 
 // truncateDiff intelligently reduces the diff size while preserving key info.
 func TruncateDiff(diff string, maxLines int) string {
-	lines := splitLines(diff)
+	lines := coreutils.SplitLines(diff)
 	if len(lines) <= maxLines {
 		return diff
 	}
@@ -196,7 +198,7 @@ func TruncateDiff(diff string, maxLines int) string {
 		truncated = append(truncated, summarizeFileChanges(currentFile, addedLines, removedCount))
 	}
 
-	return joinLines(truncated)
+	return coreutils.JoinLines(truncated)
 }
 
 // summarizeFileChanges generates a summary of a file's modifications.
@@ -216,7 +218,7 @@ func summarizeFileChanges(filePath string, addedLines []string, removedCount int
 		summary = append(summary, fmt.Sprintf("... [%d lines removed] ...", removedCount))
 	}
 
-	return joinLines(summary)
+	return coreutils.JoinLines(summary)
 }
 
 // extractFilePath extracts the file path from a `diff --git` line.
@@ -226,16 +228,6 @@ func extractFilePath(line string) string {
 		return "unknown_file"
 	}
 	return strings.TrimPrefix(parts[2], "b/")
-}
-
-// splitLines splits a string into lines.
-func splitLines(s string) []string {
-	return strings.Split(s, "\n")
-}
-
-// joinLines joins lines into a single string.
-func joinLines(lines []string) string {
-	return strings.Join(lines, "\n")
 }
 
 // AddTask adds a new task to the conversation (thread-safe)
