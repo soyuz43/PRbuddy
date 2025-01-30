@@ -77,8 +77,9 @@ func (d *DefaultDCE) BuildTaskList(input string) ([]contextpkg.Task, []string, e
 
 	// 3. Extract function names from each matched file
 	allFunctions := make([]string, 0)
+	fileFuncPattern := `(?m)^\s*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`
 	for _, f := range matchedFiles {
-		funcs := d.extractFunctionsFromFile(f)
+		funcs := d.extractFunctionsFromFile(f, fileFuncPattern)
 		if len(funcs) > 0 {
 			logs = append(logs, fmt.Sprintf("Extracted %d functions from %s: %v", len(funcs), f, funcs))
 			allFunctions = append(allFunctions, funcs...)
@@ -115,15 +116,8 @@ func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData,
 	logs = append(logs, "Retrieved git diff output")
 
 	// 2. Search for function-like patterns in the diff (leading plus sign for new lines)
-	funcRegex := regexp.MustCompile(`(?m)^\+.*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`)
-	matches := funcRegex.FindAllStringSubmatch(diffOutput, -1)
-
-	var changedFuncs []string
-	for _, m := range matches {
-		if len(m) >= 3 {
-			changedFuncs = append(changedFuncs, m[2]) // capture function name group
-		}
-	}
+	diffFuncPattern := `(?m)^\+.*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`
+	changedFuncs := d.parseFunctions(diffOutput, diffFuncPattern)
 
 	logs = append(logs, fmt.Sprintf("Found %d changed functions: %v", len(changedFuncs), changedFuncs))
 
@@ -202,20 +196,25 @@ func (d *DefaultDCE) matchFilesByKeywords(allFiles []string, userInput string) [
 	return matched
 }
 
-// Regex-based function extraction from a file
-func (d *DefaultDCE) extractFunctionsFromFile(filePath string) []string {
+// extractFunctionsFromFile uses a custom regex pattern to parse function signatures
+// from the file content on disk.
+func (d *DefaultDCE) extractFunctionsFromFile(filePath, pattern string) []string {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil
 	}
+	return d.parseFunctions(string(data), pattern)
+}
 
-	functionRegex := regexp.MustCompile(`(?m)^\s*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`)
-	matches := functionRegex.FindAllStringSubmatch(string(data), -1)
+// parseFunctions is a shared helper to run a regex that captures function names from content.
+func (d *DefaultDCE) parseFunctions(content, pattern string) []string {
+	funcRegex := regexp.MustCompile(pattern)
+	matches := funcRegex.FindAllStringSubmatch(content, -1)
 
 	var funcs []string
-	for _, match := range matches {
-		if len(match) >= 3 {
-			funcs = append(funcs, match[2]) // e.g. "myFunction"
+	for _, m := range matches {
+		if len(m) >= 3 {
+			funcs = append(funcs, m[2]) // capture function name group
 		}
 	}
 	return funcs
@@ -241,16 +240,16 @@ func stringSliceContains(slice []string, val string) bool {
 	return false
 }
 
-// FindChangedFunctions extracts changed function names from git diff output
-func (d *DefaultDCE) findChangedFunctions(diffOutput string) []string {
-	funcRegex := regexp.MustCompile(`(?m)^\+.*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`)
-	matches := funcRegex.FindAllStringSubmatch(diffOutput, -1)
-
-	var changedFuncs []string
-	for _, m := range matches {
-		if len(m) >= 3 {
-			changedFuncs = append(changedFuncs, m[2]) // capture function name group
+// ExtractCodeForTasks retrieves the contents of each file in the tasks
+func (d *DefaultDCE) ExtractCodeForTasks(tasks []contextpkg.Task) (map[string]string, error) {
+	snippets := make(map[string]string)
+	for _, task := range tasks {
+		for _, file := range task.Files {
+			data, err := os.ReadFile(file)
+			if err == nil {
+				snippets[file] = string(data)
+			}
 		}
 	}
-	return changedFuncs
+	return snippets, nil
 }
