@@ -11,8 +11,10 @@ import (
 
 // Message represents a chat message for LLM interactions
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string        `json:"role"`                 // "user", "assistant", "system"
+	Content   string        `json:"content,omitempty"`    // The main text content
+	Images    []string      `json:"images,omitempty"`     // Optional: image paths for multimodal models
+	ToolCalls []interface{} `json:"tool_calls,omitempty"` // Optional: tool calls (if applicable)
 }
 
 // Task represents a unit of work detected by the DCE

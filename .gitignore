@@ -17,3 +17,4 @@ Thumbs.db
 tmp/
 .cspell.json
 /docs
+/logs
