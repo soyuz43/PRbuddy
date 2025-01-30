@@ -3,13 +3,14 @@
 package llm
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"net/http"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -19,18 +20,29 @@ import (
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
-// LLMClient defines the interface for interacting with the LLM
+//------------------------------------------------------------------------------
+// LLMClient INTERFACE + DEFAULT IMPLEMENTATION
+//------------------------------------------------------------------------------
+
+// LLMClient defines the interface for interacting with the LLM (Ollama).
 type LLMClient interface {
+	// For non-streaming calls
 	GetChatResponse(messages []contextpkg.Message) (string, error)
+	// For streaming calls (we'll accumulate chunks under the hood)
+	StreamChatResponse(messages []contextpkg.Message) (<-chan string, error)
 }
 
-// DefaultLLMClient implements the LLMClient interface
+// DefaultLLMClient implements the LLMClient interface using Ollama’s /api/chat.
 type DefaultLLMClient struct{}
 
-// GetChatResponse sends messages to the LLM endpoint and returns the assistant's response
+//------------------------------------------------------------------------------
+// NON-STREAMING METHOD: GetChatResponse
+//------------------------------------------------------------------------------
+
 func (c *DefaultLLMClient) GetChatResponse(messages []contextpkg.Message) (string, error) {
 	model, endpoint := GetLLMConfig()
 
+	// Request body: force "stream": false
 	requestBody := map[string]interface{}{
 		"model":    model,
 		"messages": messages,
@@ -64,80 +76,174 @@ func (c *DefaultLLMClient) GetChatResponse(messages []contextpkg.Message) (strin
 		return "", fmt.Errorf("empty response from LLM")
 	}
 
-	logrus.Info("Received response from LLM successfully.")
+	logrus.Info("Received response from LLM successfully (non-stream).")
 	return llmResp.Message.Content, nil
 }
 
-// Global LLM client instance
-var (
-	llmClient LLMClient = &DefaultLLMClient{}
-)
+//------------------------------------------------------------------------------
+// STREAMING METHOD: StreamChatResponse
+//------------------------------------------------------------------------------
 
-// SetLLMClient allows injecting a different LLMClient (useful for testing or future extensions)
-func SetLLMClient(client LLMClient) {
-	llmClient = client
+func (c *DefaultLLMClient) StreamChatResponse(messages []contextpkg.Message) (<-chan string, error) {
+	model, endpoint := GetLLMConfig()
+
+	// Enable streaming in request body
+	reqBody := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+		"stream":   true,
+		"options": map[string]interface{}{
+			"num_ctx": 8192,
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", endpoint+"/api/chat", bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute HTTP request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("non-200 status code: %d", resp.StatusCode)
+	}
+
+	// Prepare a channel to stream chunks back
+	outChan := make(chan string)
+
+	go func() {
+		defer resp.Body.Close()
+		defer close(outChan)
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+
+			var chunk OllamaStreamChunk
+			if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+				// skip malformed JSON lines
+				continue
+			}
+
+			// If "done" is true, streaming has ended
+			if chunk.Done {
+				break
+			}
+
+			// The chunk content
+			if chunk.Message != nil && chunk.Message.Content != "" {
+				outChan <- chunk.Message.Content
+			}
+		}
+	}()
+
+	return outChan, nil
 }
 
-// LLMResponse represents the response structure from the LLM
+//------------------------------------------------------------------------------
+// DATA STRUCTS & GLOBAL
+//------------------------------------------------------------------------------
+
+// LLMResponse represents the top-level structure from Ollama (non-streaming).
 type LLMResponse struct {
 	Message struct {
 		Content string `json:"content"`
 	} `json:"message"`
 }
 
-// HandleQuickAssist handles ALL QuickAssist requests, whether from CLI or API.
-// This function assumes a persistent conversation.
+// OllamaStreamChunk is used during streaming (partial response).
+type OllamaStreamChunk struct {
+	Model   string `json:"model,omitempty"`
+	Message *struct {
+		Role    string   `json:"role,omitempty"`
+		Content string   `json:"content,omitempty"`
+		Images  []string `json:"images,omitempty"`
+	} `json:"message,omitempty"`
+	Done bool `json:"done,omitempty"`
+}
+
+// llmClient is the global instance implementing LLMClient.
+var llmClient LLMClient = &DefaultLLMClient{}
+
+// SetLLMClient allows injecting a different LLMClient (useful for testing or future extensions).
+func SetLLMClient(client LLMClient) {
+	llmClient = client
+}
+
+//------------------------------------------------------------------------------
+// PUBLIC HANDLER FUNCTIONS
+//------------------------------------------------------------------------------
+
+// HandleQuickAssist returns the final LLM response for a persistent conversation,
+// accumulating the streaming output behind-the-scenes into one string.
 func HandleQuickAssist(conversationID, input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("no user message provided")
 	}
 
-	// Get existing conversation or create a new persistent one
+	// Retrieve or create conversation
 	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
 	if !exists {
-		// Generate a new conversation ID if not provided or not found
 		if conversationID == "" {
 			conversationID = contextpkg.GenerateConversationID("persistent")
 		}
 		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", false)
 	}
 
-	// Add user message
+	// 1) Add user's message
 	conv.AddMessage("user", input)
 
-	// Build the final context for LLM response generation
+	// 2) Build final context for LLM
 	context := conv.BuildContext()
 
-	// Retrieve response from LLM
-	response, err := llmClient.GetChatResponse(context)
+	// 3) Stream from LLM
+	streamChan, err := llmClient.StreamChatResponse(context)
 	if err != nil {
-		return "", fmt.Errorf("failed to get response from LLM: %w", err)
+		return "", fmt.Errorf("failed to stream response: %w", err)
 	}
 
-	// Add assistant response to the conversation
-	conv.AddMessage("assistant", response)
+	// 4) Collect the streaming chunks
+	var builder strings.Builder
+	for chunk := range streamChan {
+		builder.WriteString(chunk)
+	}
+	finalResponse := builder.String()
 
-	return response, nil
+	// 5) Store assistant's final response in conversation
+	conv.AddMessage("assistant", finalResponse)
+
+	return finalResponse, nil
 }
 
-// HandleDCERequest handles ephemeral (DCE-driven) requests,
-// creating a brand-new ephemeral conversation, running DCE logic, and returning the LLM response.
+// HandleDCERequest handles ephemeral (DCE-driven) requests, returning the final text
+// from a fresh ephemeral conversation, after running your DCE logic.
 func HandleDCERequest(conversationID, input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("no user message provided")
 	}
 
-	// Get existing conversation or create a new ephemeral one
+	// Get or create ephemeral conversation
 	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
 	if !exists {
-		// Generate a new conversation ID if not provided or not found
 		if conversationID == "" {
 			conversationID = contextpkg.GenerateConversationID("ephemeral")
 		}
 		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", true)
 	}
 
-	// Add user message to the conversation
 	conv.AddMessage("user", input)
 
 	// Initialize and use DCE
@@ -147,13 +253,12 @@ func HandleDCERequest(conversationID, input string) (string, error) {
 	}
 	defer dceInstance.Deactivate(conversationID)
 
-	// Build task list with logging
+	// Build task list
 	taskList, buildLogs, err := dceInstance.BuildTaskList(input)
 	if err != nil {
 		return "", fmt.Errorf("failed to build task list: %w", err)
 	}
 
-	// Print Task List (optional debug logs)
 	fmt.Println("=== Task List ===")
 	for i, task := range taskList {
 		fmt.Printf("Task %d:\n", i+1)
@@ -173,64 +278,53 @@ func HandleDCERequest(conversationID, input string) (string, error) {
 	}
 	fmt.Println("==================")
 
-	// Add build logs to conversation and print to console
+	// Add build logs to conversation + console
 	for _, logMsg := range buildLogs {
 		conv.AddMessage("system", "[DCE] "+logMsg)
 		fmt.Println("[DCE]", logMsg)
 	}
 
-	// Filter project data with logging
+	// Filter project data
 	filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
 	if err != nil {
 		return "", fmt.Errorf("failed to filter project data: %w", err)
 	}
-
-	// Add filter logs to conversation and print to console
 	for _, logMsg := range filterLogs {
 		conv.AddMessage("system", "[DCE] "+logMsg)
 		fmt.Println("[DCE]", logMsg)
 	}
 
-	// Augment context with filtered data
+	// Augment conversation with filtered data
 	augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
 	conv.SetMessages(augmentedContext)
 
-	// Save the concatenated context to a file for development
+	// Save expanded context for debugging
 	if err := utils.SaveContextToFile(conv.ID, augmentedContext); err != nil {
-		// Log the error but do not fail the operation
 		logrus.Errorf("Failed to save context to file: %v", err)
 	}
-
-	// Save the concatenated context as a single string
 	if err := utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext); err != nil {
-		// Log the error but do not fail the operation
 		logrus.Errorf("Failed to save concatenated context to file: %v", err)
 	}
 
-	// Build the final context for LLM response generation
+	// Build final context
 	context := conv.BuildContext()
 
-	// Retrieve response from LLM
+	// Retrieve response (non-streaming) from LLM
 	response, err := llmClient.GetChatResponse(context)
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from LLM: %w", err)
 	}
 
-	// Add assistant response to the conversation
 	conv.AddMessage("assistant", response)
-
 	return response, nil
 }
 
-// StartPRConversation initiates a new PR conversation with a commit message and diffs
+// StartPRConversation initiates a new PR conversation with a commit message and diffs.
 func StartPRConversation(commitMessage, diffs string) (string, string, error) {
-	// Generate conversation ID
+	// Generate a conversation ID
 	conversationID := fmt.Sprintf("pr-%d", time.Now().UnixNano())
-
-	// Create new conversation (persistent - ephemeral=false)
 	conv := contextpkg.ConversationManagerInstance.StartConversation(conversationID, diffs, false)
 
-	// Generate initial prompt for the PR
 	prompt := fmt.Sprintf(`
 You are an assistant designed to generate a detailed pull request (PR) description based on the following commit message and code changes.
 
@@ -246,7 +340,7 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 	// Add initial user message
 	conv.AddMessage("user", prompt)
 
-	// Get initial response from LLM
+	// Get initial response (non-streaming)
 	response, err := llmClient.GetChatResponse(conv.BuildContext())
 	if err != nil {
 		return "", "", err
@@ -254,22 +348,20 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 
 	// Add assistant response
 	conv.AddMessage("assistant", response)
-
 	return conversationID, response, nil
 }
 
-// ContinuePRConversation continues an existing PR conversation (persistent)
+// ContinuePRConversation reuses HandleQuickAssist for continuing a normal (persistent) PR conversation.
 func ContinuePRConversation(conversationID, input string) (string, error) {
-	// Just reuse HandleQuickAssist for continuing a normal (persistent) conversation
 	return HandleQuickAssist(conversationID, input)
 }
 
+// GeneratePreDraftPR obtains the latest commit message and diff, then returns them for usage in PR creation.
 func GeneratePreDraftPR() (string, string, error) {
 	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get latest commit message")
 	}
-
 	diff, err := coreutils.ExecGit("diff", "HEAD~1", "HEAD")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get git diff")
@@ -277,11 +369,10 @@ func GeneratePreDraftPR() (string, string, error) {
 
 	// Intelligent truncation: prioritize added lines and metadata
 	truncatedDiff := contextpkg.TruncateDiff(diff, 1000) // Adjust max lines as needed
-
 	return commitMsg, truncatedDiff, nil
 }
 
-// GenerateDraftPR uses the LLM's chat endpoint to generate a PR draft (stateless)
+// GenerateDraftPR uses the LLM's chat endpoint to generate a PR draft (stateless).
 func GenerateDraftPR(commitMessage, diffs string) (string, error) {
 	prompt := fmt.Sprintf(`
 You are an assistant designed to generate a detailed pull request (PR) description based on the following commit message and code changes.
@@ -304,17 +395,15 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 	if err != nil {
 		return "", err
 	}
-
 	return response, nil
 }
 
-// GenerateWhatSummary generates a summary of git diffs using the LLM
+// GenerateWhatSummary generates a summary of git diffs using the LLM (stateless).
 func GenerateWhatSummary() (string, error) {
 	diffs, err := utils.GetDiffs(utils.DiffAllLocalChanges)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diffs: %w", err)
 	}
-
 	if diffs == "" {
 		return "No changes detected since the last commit.", nil
 	}
@@ -340,22 +429,21 @@ These are the git diffs for the repository:
 	return llmClient.GetChatResponse(statelessMessages)
 }
 
-// GetLLMConfig gets the current model and endpoint from environment variables
+//------------------------------------------------------------------------------
+// UTILITY FUNCTION: reads model/endpoint from environment
+//------------------------------------------------------------------------------
+
 func GetLLMConfig() (string, string) {
 	endpoint := os.Getenv("PRBUDDY_LLM_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://localhost:11434"
 	}
-
-	// Use the active model from contextpkg if set, else fallback
 	m := contextpkg.GetActiveModel()
 	if m == "" {
-		// fallback to environment or default
 		m = os.Getenv("PRBUDDY_LLM_MODEL")
 		if m == "" {
 			m = "deepseek-r1:8b"
 		}
 	}
-
 	return m, endpoint
 }
