@@ -6,14 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
-
 	"github.com/fatih/color"
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/internal/llm"
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // runRootCommand checks initialization and enters interactive menu
@@ -124,39 +123,48 @@ func showInitialMenu() {
 }
 
 // 🟢 Quick Assist Handlers
+
+// handleQuickAssist determines whether we're in single-query or interactive mode
 func handleQuickAssist(args []string, reader *bufio.Reader) {
 	if len(args) > 0 {
-		// Single query mode
+		// Single query mode (e.g. "quickassist how do I fix bug?")
 		query := strings.Join(args, " ")
 		singleQueryResponse(query)
 		return
 	}
-	// Interactive loop
+	// Otherwise, interactive loop
 	startInteractiveQuickAssist(reader)
 }
 
-// Single-shot query (e.g., "quickassist how do I fix bug?")
+// Single-shot query (e.g., "quickassist why is the sky blue")
 func singleQueryResponse(query string) {
 	if query == "" {
 		color.Red("No question provided.\n")
 		return
 	}
 
-	resp, err := llm.HandleQuickAssist("", query)
+	streamChan, err := llm.HandleQuickAssist("", query)
 	if err != nil {
 		color.Red("Error: %v\n", err)
 		return
 	}
 
-	fmt.Println("\nQuickAssist Response:")
-	color.Cyan(resp)
+	color.Yellow("\nQuickAssist Response:\n")
+
+	for chunk := range streamChan {
+		chunkStr := fmt.Sprintf("%v", chunk)
+		fmt.Print(color.CyanString(chunkStr))
+		os.Stdout.Sync()
+	}
+	fmt.Println()
 }
 
-// Persistent chat session
+// Persistent chat session (Interactive)
 func startInteractiveQuickAssist(reader *bufio.Reader) {
 	color.Cyan("\n[PRBuddy-Go] Quick Assist - Interactive Mode")
 	color.Yellow("Type 'exit' or 'q' to end the session.\n")
 
+	// If you want a new conversation ID each time, set it to ""
 	conversationID := ""
 
 	for {
@@ -179,17 +187,25 @@ func startInteractiveQuickAssist(reader *bufio.Reader) {
 			continue
 		}
 
-		resp, err := llm.HandleQuickAssist(conversationID, query)
+		streamChan, err := llm.HandleQuickAssist(conversationID, query)
 		if err != nil {
 			color.Red("Error: %v\n", err)
 			continue
 		}
 
-		color.Blue("\nAssistant:")
-		color.Cyan(resp)
+		color.Blue("\nAssistant:\n")
+
+		// Stream the response in real-time
+		for chunk := range streamChan {
+			chunkStr := fmt.Sprintf("%v", chunk)
+			fmt.Print(color.CyanString(chunkStr))
+			os.Stdout.Sync() // Flush immediately
+		}
+		fmt.Println() // New line after finishing
 	}
 }
 
+// 🔵 DCE
 func handleDCECommand() {
 	color.Cyan("\n[PRBuddy-Go] Dynamic Context Engine - Interactive Mode")
 	color.Yellow("Type 'exit' or 'q' to end the session.\n")
@@ -225,8 +241,8 @@ func handleDCECommand() {
 	}
 
 	// Create a "LittleGuy" to track tasks & code snapshots
-	lg := dce.NewLittleGuy("", tasks)
-	lg.StartMonitoring() // Optional background monitoring for diffs
+	littleGuy := dce.NewLittleGuy("", tasks)
+	littleGuy.StartMonitoring() // Optional background monitoring for diffs
 
 	// 2) Enter multi-turn loop
 	for {
@@ -244,11 +260,10 @@ func handleDCECommand() {
 			return
 		}
 
-		// 3) Check if it's a recognized command
-		handled := dce.HandleDCECommandMenu(query, lg)
+		// 3) Check if it's a recognized DCE command (like "/tasks")
+		handled := dce.HandleDCECommandMenu(query, littleGuy)
 		if handled {
-			// The input was consumed by a command (like "/tasks")
-			// Do not pass it to the LLM.
+			// The input was consumed by a command, so skip LLM
 			continue
 		}
 
@@ -259,22 +274,30 @@ func handleDCECommand() {
 		}
 
 		// Build ephemeral context from the "LittleGuy"
-		messages := lg.BuildEphemeralContext(query)
+		messages := littleGuy.BuildEphemeralContext(query)
 
-		// Send to the LLM
-		llmResponse, err := llm.HandleQuickAssist("", joinMessages(messages))
+		// We pass the entire context as a single string to QuickAssist
+		llmInput := joinMessages(messages)
+
+		streamChan, err := llm.HandleQuickAssist("", llmInput)
 		if err != nil {
 			color.Red("LLM Error: %v\n", err)
 			continue
 		}
 
-		color.Blue("\nAssistant:")
-		color.Cyan(llmResponse)
+		color.Blue("\nAssistant:\n")
+		// Stream the ephemeral LLM response in real-time
+		for chunk := range streamChan {
+			chunkStr := fmt.Sprintf("%v", chunk)
+			fmt.Print(color.CyanString(chunkStr))
+			os.Stdout.Sync()
+		}
+		fmt.Println()
 	}
 }
 
 // Helper function to join multiple context messages into a single string
-// for passing to LLM.HandleQuickAssist.
+// for passing to LLM.HandleQuickAssist as one prompt.
 func joinMessages(msgs []contextpkg.Message) string {
 	var sb strings.Builder
 	caser := cases.Title(language.English)
@@ -287,9 +310,7 @@ func joinMessages(msgs []contextpkg.Message) string {
 	return sb.String()
 }
 
-// A helper to join multiple context messages into a single string for
-// passing to HandleQuickAssist as if it’s one user query.
-
+// A helper to remove PRBuddy-Go
 func handleRemoveCommand() {
 	color.Red("\n⚠ WARNING: This will remove PRBuddy-Go from your repository! ⚠")
 	color.Yellow("Are you sure? Type 'yes' to confirm: ")
@@ -308,7 +329,7 @@ func handleRemoveCommand() {
 	color.Green("\n[PRBuddy-Go] Successfully uninstalled.\n")
 }
 
-// Other Handlers
+// 🟢 Additional handlers for commands from the interactive menu
 func handleGeneratePR() {
 	color.Cyan("\n[PRBuddy-Go] Generating draft PR...\n")
 	runPostCommit(nil, nil)
@@ -340,6 +361,6 @@ func printInteractiveHelp() {
 	fmt.Printf("   %s    - %s\n", green("dce"), "Dynamic Context Engine")
 	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show this help information")
-	fmt.Printf("   %s    - %s\n", red("remove"), "Uninstall PRBuddy-Go and delete all associated files") // 🔴 Highlighted in red
+	fmt.Printf("   %s    - %s\n", red("remove"), "Uninstall PRBuddy-Go and delete all associated files")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
 }
