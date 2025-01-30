@@ -136,27 +136,23 @@ func handleQuickAssist(args []string, reader *bufio.Reader) {
 	startInteractiveQuickAssist(reader)
 }
 
-// Single-shot query (e.g., "quickassist why is the sky blue")
 func singleQueryResponse(query string) {
 	if query == "" {
 		color.Red("No question provided.\n")
 		return
 	}
 
-	streamChan, err := llm.HandleQuickAssist("", query)
+	// Call HandleQuickAssist with empty conversationID
+	// Since it returns (string, error), you get the entire response at once.
+	resp, err := llm.HandleQuickAssist("", query)
 	if err != nil {
 		color.Red("Error: %v\n", err)
 		return
 	}
 
 	color.Yellow("\nQuickAssist Response:\n")
-
-	for chunk := range streamChan {
-		chunkStr := fmt.Sprintf("%v", chunk)
-		fmt.Print(color.CyanString(chunkStr))
-		os.Stdout.Sync()
-	}
-	fmt.Println()
+	color.Cyan(resp)
+	fmt.Println() // final newline
 }
 
 // Persistent chat session (Interactive)
@@ -164,7 +160,7 @@ func startInteractiveQuickAssist(reader *bufio.Reader) {
 	color.Cyan("\n[PRBuddy-Go] Quick Assist - Interactive Mode")
 	color.Yellow("Type 'exit' or 'q' to end the session.\n")
 
-	// If you want a new conversation ID each time, set it to ""
+	// If you want to maintain conversation state, set a persistent ID
 	conversationID := ""
 
 	for {
@@ -177,8 +173,8 @@ func startInteractiveQuickAssist(reader *bufio.Reader) {
 		}
 
 		query := strings.TrimSpace(input)
-		if strings.EqualFold(query, "exit") || strings.EqualFold(query, "q") {
-			color.Cyan("\n[PRBuddy-Go] Ending Quick Assist session.\n")
+		if shouldExit(query) {
+			color.Cyan("\nEnding session.\n")
 			return
 		}
 
@@ -187,22 +183,29 @@ func startInteractiveQuickAssist(reader *bufio.Reader) {
 			continue
 		}
 
-		streamChan, err := llm.HandleQuickAssist(conversationID, query)
+		// Get final response (non-streaming)
+		resp, err := llm.HandleQuickAssist(conversationID, query)
 		if err != nil {
 			color.Red("Error: %v\n", err)
 			continue
 		}
 
 		color.Blue("\nAssistant:\n")
+		color.Cyan(resp)
+		fmt.Println() // final newline
 
-		// Stream the response in real-time
-		for chunk := range streamChan {
-			chunkStr := fmt.Sprintf("%v", chunk)
-			fmt.Print(color.CyanString(chunkStr))
-			os.Stdout.Sync() // Flush immediately
+		// If a conversation exists, store the final response
+		if conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID); exists {
+			conv.AddMessage("assistant", resp)
 		}
-		fmt.Println() // New line after finishing
 	}
+}
+
+// Helper
+func shouldExit(query string) bool {
+	return strings.EqualFold(query, "exit") ||
+		strings.EqualFold(query, "q") ||
+		strings.EqualFold(query, "quit")
 }
 
 // 🔵 DCE
