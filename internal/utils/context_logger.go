@@ -1,5 +1,3 @@
-// internal/utils/context_logger.go
-
 package utils
 
 import (
@@ -9,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 )
@@ -76,11 +77,14 @@ func SaveConcatenatedContextToFile(conversationID string, messages []contextpkg.
 	filename := fmt.Sprintf("conversation-%s-%s.txt", conversationID, timestamp)
 	filePath := filepath.Join(logDir, filename)
 
+	// Capitalization using x/text/cases
+	capitalizer := cases.Title(language.English)
+
 	// Concatenate all messages into a single string
 	var builder strings.Builder
 	for _, msg := range messages {
-		// Optionally, format each message with role labels
-		builder.WriteString(fmt.Sprintf("%s: %s\n", strings.Title(msg.Role), msg.Content))
+		// Use the new capitalization method
+		builder.WriteString(fmt.Sprintf("%s: %s\n", capitalizer.String(msg.Role), msg.Content))
 	}
 	concatenatedContext := builder.String()
 

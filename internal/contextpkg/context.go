@@ -145,7 +145,7 @@ func (c *Conversation) SetMessages(messages []Message) {
 	c.Messages = messages
 }
 
-// truncateDiff intelligently reduces the diff size while preserving key information.
+// truncateDiff intelligently reduces the diff size while preserving key info.
 func TruncateDiff(diff string, maxLines int) string {
 	lines := splitLines(diff)
 	if len(lines) <= maxLines {
@@ -175,10 +175,10 @@ func TruncateDiff(diff string, maxLines int) string {
 			// Keep metadata for file creation/deletion
 			truncated = append(truncated, line)
 		} else if strings.HasPrefix(line, "+") {
-			// Store added lines (prioritize keeping these)
+			// Store added lines (prioritize these)
 			addedLines = append(addedLines, line)
 		} else if strings.HasPrefix(line, "-") {
-			// Count removed lines (we will discard most of them later)
+			// Count removed lines, do not keep them
 			removedCount++
 		} else {
 			// Keep general metadata (e.g., `@@ -12,5 +12,8 @@`)
@@ -321,6 +321,7 @@ func GetActiveModel() string {
 	return ""
 }
 
+// BuildEphemeralContext returns a minimal, stateless context for ephemeral usage
 func BuildEphemeralContext(input string) []Message {
 	return []Message{
 		{Role: "system", Content: "You are a helpful assistant."},

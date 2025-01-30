@@ -352,7 +352,7 @@ func GetLLMConfig() (string, string) {
 		// fallback to environment or default
 		m = os.Getenv("PRBUDDY_LLM_MODEL")
 		if m == "" {
-			m = "hermes3"
+			m = "deepseek-r1:8b"
 		}
 	}
 
