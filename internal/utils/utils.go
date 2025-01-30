@@ -3,40 +3,26 @@
 package utils
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 )
 
-// ExecuteGitCommand runs a git command and returns its output
+// ExecuteGitCommand runs a git command using coreutils
 func ExecuteGitCommand(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return "", errors.Wrapf(err, "git command failed: git %s", strings.Join(args, " "))
-	}
-	return strings.TrimSpace(out.String()), nil
+	return coreutils.ExecGit(args...)
 }
 
-// GetRepoPath retrieves the top-level directory of the current Git repository
+// GetRepoPath retrieves the top-level directory using coreutils
 func GetRepoPath() (string, error) {
-	repoPath, err := ExecuteGitCommand("rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	return repoPath, nil
+	return coreutils.GetRepoPath()
 }
 
-// SanitizeBranchName replaces slashes and spaces in branch names for safe usage
+// SanitizeBranchName uses coreutils implementation
 func SanitizeBranchName(branch string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(branch, "/", "_"), " ", "-")
+	return coreutils.SanitizeBranchName(branch)
 }
 
 // CheckExtensionInstalled verifies if the extension is installed
