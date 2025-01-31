@@ -1,4 +1,3 @@
-// internal/utils/port_file.go
 package utils
 
 import (
@@ -18,7 +17,7 @@ const (
 	dirPerm      = 0700 // rwx------
 )
 
-// EnsureAppCacheDir creates and validates the application cache directory
+// EnsureAppCacheDir creates (if necessary) and verifies the application cache directory.
 func EnsureAppCacheDir() error {
 	cacheDir, err := getAppCacheDirPath()
 	if err != nil {
@@ -57,6 +56,7 @@ func verifyDirectoryPermissions(path string) error {
 	return nil
 }
 
+// WritePortFile writes the given port number atomically to a port file.
 func WritePortFile(port int) error {
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port number: %d", port)
@@ -106,7 +106,6 @@ func finalizePortFile(tmpFile *os.File, cacheDir string) error {
 		return fmt.Errorf("atomic rename failed: %w", err)
 	}
 
-	// Ensure final file has correct permissions
 	return os.Chmod(finalPath, filePerm)
 }
 
@@ -115,6 +114,7 @@ func cleanupTempFile(tmpFile *os.File) {
 	os.Remove(tmpFile.Name())
 }
 
+// ReadPortFile reads and validates the port number from the port file.
 func ReadPortFile() (int, error) {
 	if err := EnsureAppCacheDir(); err != nil {
 		return 0, fmt.Errorf("cache directory validation failed: %w", err)
@@ -161,6 +161,7 @@ func validatePortData(data []byte) (int, error) {
 	return port, nil
 }
 
+// DeletePortFile removes the port file.
 func DeletePortFile() error {
 	cacheDir, err := getAppCacheDirPath()
 	if err != nil {
@@ -174,5 +175,6 @@ func DeletePortFile() error {
 		}
 		return fmt.Errorf("delete failed: %w", err)
 	}
+
 	return nil
 }

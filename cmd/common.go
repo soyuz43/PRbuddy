@@ -7,22 +7,21 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
-	"github.com/soyuz43/prbuddy-go/internal/utils/colorutils"
 	"github.com/spf13/cobra"
 )
 
 // Color definitions
 
 var (
-	cyan  = colorutils.Cyan
-	green = colorutils.Green
+	cyan  = utils.Cyan
+	green = utils.Green
 	//lint:ignore U1000 This variable is intentionally unused.
-	yellow = colorutils.Yellow
+	yellow = utils.Yellow
 	//lint:ignore U1000 This variable is intentionally unused.
-	red = colorutils.Red
+	red = utils.Red
 	//lint:ignore U1000 This variable is intentionally unused.
-	magenta = colorutils.Magenta
-	bold    = colorutils.Bold
+	magenta = utils.Magenta
+	bold    = utils.Bold
 )
 
 // Root command

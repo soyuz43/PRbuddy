@@ -75,12 +75,12 @@ func runPostCommit(cmd *cobra.Command, args []string) {
 }
 
 func generateDraftPR() (string, string, string, error) {
-	branchName, err := utils.ExecuteGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	branchName, err := utils.ExecGit("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", "", "", fmt.Errorf("branch detection failed: %w", err)
 	}
 
-	commitHash, err := utils.ExecuteGitCommand("rev-parse", "HEAD")
+	commitHash, err := utils.ExecGit("rev-parse", "HEAD")
 	if err != nil {
 		return "", "", "", fmt.Errorf("commit hash retrieval failed: %w", err)
 	}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
-	"github.com/soyuz43/prbuddy-go/internal/coreutils"
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 // LittleGuy tracks the ephemeral codebase snapshot and tasks for a single DCE session.
@@ -259,7 +259,7 @@ func (lg *LittleGuy) logLLMContext(messages []contextpkg.Message) {
 	}
 
 	// Write the exact unformatted LLM context to littleguy-<conversationID>.txt
-	if err := coreutils.LogLittleGuyContext(lg.conversationID, rawContext.String()); err != nil {
+	if err := utils.LogLittleGuyContext(lg.conversationID, rawContext.String()); err != nil {
 		color.Red("[LittleGuy] Failed to log LLM context: %v\n", err)
 	}
 }
@@ -329,7 +329,7 @@ func parseNewMethods(diff string) ([]newMethod, []importExport) {
 
 // runGitDiff uses coreutils to run a unified diff command.
 func runGitDiff() (string, error) {
-	return coreutils.ExecGit("diff", "--unified=0")
+	return utils.ExecGit("diff", "--unified=0")
 }
 
 // Helper types for parseNewMethods():

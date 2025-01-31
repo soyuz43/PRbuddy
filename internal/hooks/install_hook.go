@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/soyuz43/prbuddy-go/internal/coreutils"
-	"github.com/soyuz43/prbuddy-go/internal/utils/colorutils"
+	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
 func InstallPostCommitHook() error {
-	repoPath, err := coreutils.GetRepoPath()
+	repoPath, err := utils.GetRepoPath()
 	if err != nil {
 		return err
 	}
@@ -27,15 +26,15 @@ func InstallPostCommitHook() error {
 	}
 
 	// Define the hook content
-	prBuddyHookContent := `echo "` + colorutils.Cyan("[PRBuddy-Go] Commit detected. Generating pull request...") + `"
+	prBuddyHookContent := `echo "` + utils.Cyan("[PRBuddy-Go] Commit detected. Generating pull request...") + `"
 
 # Run the PR generation command
 prbuddy-go post-commit --non-interactive
 
 if [ $? -eq 0 ]; then
-  echo "` + colorutils.Green("[PRBuddy-Go] Pull request generated successfully.") + `"
+  echo "` + utils.Green("[PRBuddy-Go] Pull request generated successfully.") + `"
 else
-  echo "` + colorutils.Red("[PRBuddy-Go] Failed to generate pull request.") + `"
+  echo "` + utils.Red("[PRBuddy-Go] Failed to generate pull request.") + `"
 fi`
 
 	postCommitPath := filepath.Join(hooksDir, "post-commit")
@@ -50,7 +49,7 @@ fi`
 
 		// Check if the PRBuddy hook content is already present
 		if strings.Contains(string(existingContent), "prbuddy-go post-commit") {
-			fmt.Println(colorutils.Green("[PRBuddy-Go] post-commit hook already contains PRBuddy logic. Skipping reinstallation."))
+			fmt.Println(utils.Green("[PRBuddy-Go] post-commit hook already contains PRBuddy logic. Skipping reinstallation."))
 			return nil
 		}
 
@@ -60,7 +59,7 @@ fi`
 		if err != nil {
 			return fmt.Errorf("failed to append PRBuddy logic to existing post-commit hook: %w", err)
 		}
-		fmt.Println(colorutils.Green("[PRBuddy-Go] post-commit hook updated with PRBuddy logic."))
+		fmt.Println(utils.Green("[PRBuddy-Go] post-commit hook updated with PRBuddy logic."))
 	} else {
 		// If the hook doesn't exist, create a new one
 		newHookContent := `
@@ -72,7 +71,7 @@ fi`
 		if err != nil {
 			return fmt.Errorf("failed to write post-commit hook: %w", err)
 		}
-		fmt.Printf(colorutils.Cyan("[PRBuddy-Go] post-commit hook installed at %s\n"), postCommitPath)
+		fmt.Printf(utils.Cyan("[PRBuddy-Go] post-commit hook installed at %s\n"), postCommitPath)
 	}
 
 	return nil

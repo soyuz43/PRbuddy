@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
-	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
 
@@ -20,7 +19,7 @@ func SaveDraftContext(branchName, commitHash string, context []contextpkg.Messag
 		return fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := coreutils.SanitizeBranchName(branchName)
+	sanitizedBranch := utils.SanitizeBranchName(branchName)
 	commitDir := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]))
 
@@ -47,7 +46,7 @@ func LoadDraftContext(branchName, commitHash string) ([]contextpkg.Message, erro
 		return nil, fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	sanitizedBranch := coreutils.SanitizeBranchName(branchName)
+	sanitizedBranch := utils.SanitizeBranchName(branchName)
 	filePath := filepath.Join(repoPath, ".git", "pr_buddy_db",
 		fmt.Sprintf("%s-%s", sanitizedBranch, commitHash[:7]), "draft_context.json")
 
@@ -67,7 +66,7 @@ func LoadDraftContext(branchName, commitHash string) ([]contextpkg.Message, erro
 // saveFile writes content to a specified file within a directory
 func saveFile(dir, filename, content string) error {
 	path := filepath.Join(dir, filename)
-	if err := coreutils.WriteFile(path, []byte(content)); err != nil {
+	if err := utils.WriteFile(path, []byte(content)); err != nil {
 		return fmt.Errorf("file write failed: %w", err)
 	}
 

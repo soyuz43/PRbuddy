@@ -1,5 +1,3 @@
-// internal/utils/task_utils.go
-
 package utils
 
 import (
@@ -9,13 +7,13 @@ import (
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 )
 
-// ParseTasks converts raw task list input into structured Task objects
+// ParseTasks converts raw task list input into a slice of Task objects.
+// Expected task format per line: "Description | Files | Functions | Dependencies | Notes"
 func ParseTasks(input string) ([]contextpkg.Task, error) {
 	if input == "" {
 		return nil, errors.New("empty task list input")
 	}
 
-	// Example: Split tasks by newline and parse each task
 	lines := strings.Split(input, "\n")
 	var tasks []contextpkg.Task
 	for _, line := range lines {
@@ -23,7 +21,6 @@ func ParseTasks(input string) ([]contextpkg.Task, error) {
 		if line == "" {
 			continue
 		}
-		// Simple parsing: "Description | Files | Functions | Dependencies | Notes"
 		parts := strings.Split(line, "|")
 		if len(parts) < 1 {
 			return nil, errors.New("invalid task format")
@@ -41,7 +38,7 @@ func ParseTasks(input string) ([]contextpkg.Task, error) {
 	return tasks, nil
 }
 
-// parseList safely parses list items from task parts
+// parseList safely splits and trims comma‐separated list items from a task part.
 func parseList(parts []string, index int) []string {
 	if index >= len(parts) {
 		return nil

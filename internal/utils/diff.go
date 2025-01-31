@@ -1,5 +1,3 @@
-// internal/utils/diff.go
-
 package utils
 
 import (
@@ -14,23 +12,22 @@ const (
 	DiffAllLocalChanges
 )
 
+// GetDiffs returns diffs based on the given mode.
+// It leverages the unified ExecGit (from gitutils.go) for all Git operations.
 func GetDiffs(mode DiffMode) (string, error) {
 	switch mode {
 	case DiffSinceLastCommit:
-		return ExecuteGitCommand("diff", "HEAD~1", "HEAD")
-
+		return ExecGit("diff", "HEAD~1", "HEAD")
 	case DiffAllLocalChanges:
-		staged, err := ExecuteGitCommand("diff", "--cached", "HEAD")
+		staged, err := ExecGit("diff", "--cached", "HEAD")
 		if err != nil {
 			return "", fmt.Errorf("error getting staged diff: %w", err)
 		}
-
-		unstaged, err := ExecuteGitCommand("diff", "HEAD")
+		unstaged, err := ExecGit("diff", "HEAD")
 		if err != nil {
 			return "", fmt.Errorf("error getting unstaged diff: %w", err)
 		}
-
-		untracked, err := ExecuteGitCommand("ls-files", "--others", "--exclude-standard")
+		untracked, err := ExecGit("ls-files", "--others", "--exclude-standard")
 		if err != nil {
 			return "", fmt.Errorf("error getting untracked files: %w", err)
 		}

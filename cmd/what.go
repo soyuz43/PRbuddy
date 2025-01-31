@@ -19,7 +19,7 @@ and provides a natural language summary using the LLM.`,
 		fmt.Println("[PRBuddy-Go] Running 'what' command...")
 
 		// Check if there are any commits in the repository
-		commitCount, err := utils.ExecuteGitCommand("rev-list", "--count", "HEAD")
+		commitCount, err := utils.ExecGit("rev-list", "--count", "HEAD")
 		if err != nil {
 			fmt.Printf("[PRBuddy-Go] Error checking commits: %v\n", err)
 			return
