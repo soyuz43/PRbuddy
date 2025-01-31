@@ -216,7 +216,7 @@ func handleDCECommand() {
 	dceInstance := dce.NewDCE()
 	reader := bufio.NewReader(os.Stdin)
 
-	// 1) Gather first user input to build initial tasks
+	// 1) Initial input
 	color.Green("\nYou:")
 	fmt.Print("> ")
 	firstInput, err := reader.ReadString('\n')
@@ -231,10 +231,10 @@ func handleDCECommand() {
 		return
 	}
 
-	// Build the initial task list
+	// 2) Build initial context
 	tasks, logs, err := dceInstance.BuildTaskList(query)
 	if err != nil {
-		color.Red("Error building initial task list: %v\n", err)
+		color.Red("Error building task list: %v\n", err)
 		return
 	}
 
@@ -243,11 +243,11 @@ func handleDCECommand() {
 		color.White("  • %s", lg)
 	}
 
-	// Create a "LittleGuy" to track tasks & code snapshots
+	// 3) Initialize LittleGuy
 	littleGuy := dce.NewLittleGuy("", tasks)
-	littleGuy.StartMonitoring() // Optional background monitoring for diffs
+	littleGuy.StartMonitoring()
 
-	// 2) Enter multi-turn loop
+	// 4) Interaction loop
 	for {
 		color.Green("\nYou:")
 		fmt.Print("> ")
@@ -258,43 +258,30 @@ func handleDCECommand() {
 		}
 
 		query = strings.TrimSpace(input)
-		if strings.EqualFold(query, "exit") || strings.EqualFold(query, "q") {
-			color.Cyan("\n[PRBuddy-Go] Exiting Dynamic Context Engine session.\n")
+		if shouldExit(query) {
+			color.Cyan("\nExiting DCE session.\n")
 			return
 		}
 
-		// 3) Check if it's a recognized DCE command (like "/tasks")
-		handled := dce.HandleDCECommandMenu(query, littleGuy)
-		if handled {
-			// The input was consumed by a command, so skip LLM
+		// Handle commands first
+		if dce.HandleDCECommandMenu(query, littleGuy) {
 			continue
 		}
 
-		// 4) Otherwise, proceed with ephemeral LLM usage
-		if query == "" {
-			color.Yellow("No input provided.\n")
-			continue
-		}
-
-		// Build ephemeral context from the "LittleGuy"
+		// Process LLM query
 		messages := littleGuy.BuildEphemeralContext(query)
-
-		// We pass the entire context as a single string to QuickAssist
 		llmInput := joinMessages(messages)
 
-		streamChan, err := llm.HandleQuickAssist("", llmInput)
+		// Get complete response
+		resp, err := llm.HandleQuickAssist("", llmInput)
 		if err != nil {
 			color.Red("LLM Error: %v\n", err)
 			continue
 		}
 
+		// Print full response
 		color.Blue("\nAssistant:\n")
-		// Stream the ephemeral LLM response in real-time
-		for chunk := range streamChan {
-			chunkStr := fmt.Sprintf("%v", chunk)
-			fmt.Print(color.CyanString(chunkStr))
-			os.Stdout.Sync()
-		}
+		color.Cyan(resp)
 		fmt.Println()
 	}
 }
