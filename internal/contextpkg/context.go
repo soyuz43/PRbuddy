@@ -5,8 +5,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 )
 
 // Message represents a chat message for LLM interactions
@@ -149,9 +147,10 @@ func (c *Conversation) SetMessages(messages []Message) {
 	c.Messages = messages
 }
 
-// truncateDiff intelligently reduces the diff size while preserving key info.
+// TruncateDiff intelligently reduces the diff size while preserving key info.
 func TruncateDiff(diff string, maxLines int) string {
-	lines := coreutils.SplitLines(diff)
+	// Use the standard library to split lines.
+	lines := strings.Split(strings.TrimSuffix(diff, "\n"), "\n")
 	if len(lines) <= maxLines {
 		return diff
 	}
@@ -162,7 +161,7 @@ func TruncateDiff(diff string, maxLines int) string {
 	var removedCount int
 
 	for _, line := range lines {
-		// Detect file changes (e.g., `diff --git a/path/to/file b/path/to/file`)
+		// Detect file changes (e.g., "diff --git a/path/to/file b/path/to/file")
 		if strings.HasPrefix(line, "diff --git") {
 			// Store previous file's changes if we hit a new file
 			if currentFile != "" {
@@ -185,7 +184,7 @@ func TruncateDiff(diff string, maxLines int) string {
 			// Count removed lines, do not keep them
 			removedCount++
 		} else {
-			// Keep general metadata (e.g., `@@ -12,5 +12,8 @@`)
+			// Keep general metadata (e.g., "@@ -12,5 +12,8 @@")
 			truncated = append(truncated, line)
 		}
 
@@ -200,7 +199,7 @@ func TruncateDiff(diff string, maxLines int) string {
 		truncated = append(truncated, summarizeFileChanges(currentFile, addedLines, removedCount))
 	}
 
-	return coreutils.JoinLines(truncated)
+	return strings.Join(truncated, "\n")
 }
 
 // summarizeFileChanges generates a summary of a file's modifications.
@@ -220,10 +219,10 @@ func summarizeFileChanges(filePath string, addedLines []string, removedCount int
 		summary = append(summary, fmt.Sprintf("... [%d lines removed] ...", removedCount))
 	}
 
-	return coreutils.JoinLines(summary)
+	return strings.Join(summary, "\n")
 }
 
-// extractFilePath extracts the file path from a `diff --git` line.
+// extractFilePath extracts the file path from a "diff --git" line.
 func extractFilePath(line string) string {
 	parts := strings.Split(line, " ")
 	if len(parts) < 3 {
@@ -304,18 +303,18 @@ func parseTaskMessage(content string) (Task, error) {
 // ConversationManagerInstance is the singleton instance of ConversationManager
 var ConversationManagerInstance = NewConversationManager()
 
-// GenerateConversationID creates a unique conversation ID
+// GenerateConversationID creates a unique conversation ID.
 func GenerateConversationID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// GetActiveModel retrieves the active model from the context
+// GetActiveModel retrieves the active model from the context.
 func GetActiveModel() string {
 	// Implement logic to retrieve active model if stored within context
 	return ""
 }
 
-// BuildEphemeralContext returns a minimal, stateless context for ephemeral usage
+// BuildEphemeralContext returns a minimal, stateless context for ephemeral usage.
 func BuildEphemeralContext(input string) []Message {
 	return []Message{
 		{Role: "system", Content: "You are a helpful assistant."},

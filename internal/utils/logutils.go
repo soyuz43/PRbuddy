@@ -14,39 +14,53 @@ import (
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 )
 
-// SaveContextToFile saves the concatenated context messages to a JSON file.
-// It creates the necessary directories if they do not exist.
-// The file is named with a timestamp for easy identification.
+// LogLittleGuyContext writes the given data to a file named "littleguy-<conversationID>.txt"
+// in a dedicated "logs" directory. A timestamp is prepended to each log entry.
+func LogLittleGuyContext(conversationID, data string) error {
+	logsDir := "logs"
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	filename := filepath.Join(logsDir, fmt.Sprintf("littleguy-%s.txt", conversationID))
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	line := fmt.Sprintf("[%s] %s\n", timestamp, data)
+
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(line); err != nil {
+		return fmt.Errorf("failed to write to log file: %w", err)
+	}
+	return nil
+}
+
+// SaveContextToFile marshals a slice of context messages (from contextpkg.Message) to JSON and writes
+// the result to a timestamped file in the repository's .git/pr_buddy_db/context_logs directory.
 func SaveContextToFile(conversationID string, messages []contextpkg.Message) error {
-	// Retrieve the repository path
 	repoPath, err := GetRepoPath()
 	if err != nil {
 		return fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	// Define the log directory path
 	logDir := filepath.Join(repoPath, ".git", "pr_buddy_db", "context_logs")
-
-	// Create the log directory if it doesn't exist
-	err = os.MkdirAll(logDir, 0750)
-	if err != nil {
+	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return fmt.Errorf("failed to create context_logs directory: %w", err)
 	}
 
-	// Generate a timestamped filename
 	timestamp := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("conversation-%s-%s.json", conversationID, timestamp)
 	filePath := filepath.Join(logDir, filename)
 
-	// Marshal the messages to JSON with indentation for readability
 	jsonData, err := json.MarshalIndent(messages, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal context messages to JSON: %w", err)
 	}
 
-	// Write the JSON data to the file
-	err = os.WriteFile(filePath, jsonData, 0640)
-	if err != nil {
+	if err := os.WriteFile(filePath, jsonData, 0640); err != nil {
 		return fmt.Errorf("failed to write context to file: %w", err)
 	}
 
@@ -54,43 +68,31 @@ func SaveContextToFile(conversationID string, messages []contextpkg.Message) err
 	return nil
 }
 
-// SaveConcatenatedContextToFile concatenates all messages and saves them to a text file.
-// This provides a readable format of what the LLM receives.
+// SaveConcatenatedContextToFile concatenates a slice of context messages into a readable string and
+// writes it to a timestamped text file in the repository's .git/pr_buddy_db/context_logs directory.
 func SaveConcatenatedContextToFile(conversationID string, messages []contextpkg.Message) error {
-	// Retrieve the repository path
 	repoPath, err := GetRepoPath()
 	if err != nil {
 		return fmt.Errorf("failed to get repository path: %w", err)
 	}
 
-	// Define the log directory path
 	logDir := filepath.Join(repoPath, ".git", "pr_buddy_db", "context_logs")
-
-	// Create the log directory if it doesn't exist
-	err = os.MkdirAll(logDir, 0750)
-	if err != nil {
+	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return fmt.Errorf("failed to create context_logs directory: %w", err)
 	}
 
-	// Generate a timestamped filename
 	timestamp := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("conversation-%s-%s.txt", conversationID, timestamp)
 	filePath := filepath.Join(logDir, filename)
 
-	// Capitalization using x/text/cases
 	capitalizer := cases.Title(language.English)
-
-	// Concatenate all messages into a single string
 	var builder strings.Builder
 	for _, msg := range messages {
-		// Use the new capitalization method
 		builder.WriteString(fmt.Sprintf("%s: %s\n", capitalizer.String(msg.Role), msg.Content))
 	}
 	concatenatedContext := builder.String()
 
-	// Write the concatenated context to the file
-	err = os.WriteFile(filePath, []byte(concatenatedContext), 0640)
-	if err != nil {
+	if err := os.WriteFile(filePath, []byte(concatenatedContext), 0640); err != nil {
 		return fmt.Errorf("failed to write concatenated context to file: %w", err)
 	}
 

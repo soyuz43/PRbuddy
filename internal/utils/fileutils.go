@@ -1,5 +1,4 @@
-// ./coreutils/fileutils.go 
-package coreutils
+package utils
 
 import (
 	"fmt"
@@ -8,16 +7,18 @@ import (
 	"syscall"
 )
 
+// WriteFile performs an atomic write to the given file path by writing to a temporary file
+// with an exclusive lock, then renaming it into place.
 func WriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Atomic write with file locking
+	// Create a temporary file in the same directory.
 	file, err := os.CreateTemp(dir, "tmp-")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	defer os.Remove(file.Name())
 
@@ -37,6 +38,7 @@ func WriteFile(path string, data []byte) error {
 	return nil
 }
 
+// ReadFile reads the file at the given path while holding a shared lock.
 func ReadFile(path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {

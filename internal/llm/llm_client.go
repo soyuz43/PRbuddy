@@ -15,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
-	"github.com/soyuz43/prbuddy-go/internal/coreutils"
 	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
 )
@@ -364,11 +363,11 @@ func ContinuePRConversation(conversationID, input string) (string, error) {
 
 // GeneratePreDraftPR obtains the latest commit message and diff, then returns them for usage in PR creation.
 func GeneratePreDraftPR() (string, string, error) {
-	commitMsg, err := utils.ExecuteGitCommand("log", "-1", "--pretty=%B")
+	commitMsg, err := utils.ExecGit("log", "-1", "--pretty=%B")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get latest commit message")
 	}
-	diff, err := coreutils.ExecGit("diff", "HEAD~1", "HEAD")
+	diff, err := utils.ExecGit("diff", "HEAD~1", "HEAD")
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to get git diff")
 	}

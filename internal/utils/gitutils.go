@@ -1,5 +1,4 @@
-// ./coreutils/gitutils.go
-package coreutils
+package utils
 
 import (
 	"bytes"
@@ -8,6 +7,7 @@ import (
 	"strings"
 )
 
+// ExecGit executes a git command with the given arguments and returns the trimmed output.
 func ExecGit(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	var stdout, stderr bytes.Buffer
@@ -25,6 +25,7 @@ func ExecGit(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// GetRepoPath returns the top-level path of the current Git repository.
 func GetRepoPath() (string, error) {
 	return ExecGit("rev-parse", "--show-toplevel")
 }
