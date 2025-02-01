@@ -2,8 +2,6 @@ package dce
 
 import (
 	"fmt"
-	"os"
-	"regexp"
 	"strings"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
@@ -45,63 +43,9 @@ func (d *DefaultDCE) Deactivate(conversationID string) error {
 	return nil
 }
 
-// BuildTaskList generates tasks based on user input.
-// Task-building logic is offloaded to contextpkg/task_utils when possible.
+// BuildTaskList generates tasks based on user input by delegating to task_helper.
 func (d *DefaultDCE) BuildTaskList(input string) ([]contextpkg.Task, []string, error) {
-	var logs []string
-	logs = append(logs, fmt.Sprintf("Building task list from input: %q", input))
-
-	// 1. Retrieve all tracked files.
-	out, err := utils.ExecGit("ls-files")
-	if err != nil {
-		return nil, logs, fmt.Errorf("failed to execute git ls-files: %w", err)
-	}
-	trackedFiles := strings.Split(strings.TrimSpace(out), "\n")
-	logs = append(logs, fmt.Sprintf("Found %d tracked files", len(trackedFiles)))
-
-	// 2. Match files based on keywords.
-	matchedFiles := d.matchFilesByKeywords(trackedFiles, input)
-	logs = append(logs, fmt.Sprintf("Matched %d files: %v", len(matchedFiles), matchedFiles))
-
-	// 3. If no files matched, create a catch-all task.
-	if len(matchedFiles) == 0 {
-		task := contextpkg.Task{
-			Description: input,
-			Notes:       []string{"No direct file matches found. Add manually."},
-		}
-		logs = append(logs, "No file matches found - created catch-all task")
-		return []contextpkg.Task{task}, logs, nil
-	}
-
-	// 4. Extract functions from each matched file.
-	var allFunctions []string
-	fileFuncPattern := `(?m)^\s*(def|func|function|public|private|static|void)\s+(\w+)\s*\(`
-	for _, f := range matchedFiles {
-		funcs := d.extractFunctionsFromFile(f, fileFuncPattern)
-		if len(funcs) > 0 {
-			logs = append(logs, fmt.Sprintf("Extracted %d functions from %s: %v", len(funcs), f, funcs))
-			allFunctions = append(allFunctions, funcs...)
-		} else {
-			logs = append(logs, fmt.Sprintf("No functions found in %s", f))
-		}
-	}
-
-	// 5. Create a consolidated task.
-	task := contextpkg.Task{
-		Description:  input,
-		Files:        matchedFiles,
-		Functions:    allFunctions,
-		Dependencies: nil,
-		Notes:        []string{"Matched via input and file heuristics."},
-	}
-	logs = append(logs, fmt.Sprintf("Created task with %d files and %d functions", len(matchedFiles), len(allFunctions)))
-
-	// (Optional) Use task_utils to further process the task.
-	// For example, you could reformat the task string:
-	// formatted := task_utils.FormatTaskMessage(task)
-	// logs = append(logs, "Formatted task: "+formatted)
-
-	return []contextpkg.Task{task}, logs, nil
+	return BuildTaskList(input)
 }
 
 // FilterProjectData uses git diff to discover changed functions and updates tasks.
@@ -153,42 +97,6 @@ func (d *DefaultDCE) AugmentContext(ctx []contextpkg.Message, filteredData []Fil
 		Content: builder.String(),
 	})
 	return augmented
-}
-
-// matchFilesByKeywords returns files from allFiles that contain any keyword from userInput.
-func (d *DefaultDCE) matchFilesByKeywords(allFiles []string, userInput string) []string {
-	var matched []string
-	words := strings.Fields(strings.ToLower(userInput))
-	for _, file := range allFiles {
-		lowerFile := strings.ToLower(file)
-		for _, w := range words {
-			if len(w) >= 3 && strings.Contains(lowerFile, w) {
-				matched = append(matched, file)
-				break
-			}
-		}
-	}
-	return matched
-}
-
-// extractFunctionsFromFile reads file content and extracts function names using the provided regex.
-func (d *DefaultDCE) extractFunctionsFromFile(filePath, pattern string) []string {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil
-	}
-	matches := re.FindAllStringSubmatch(string(data), -1)
-	var funcs []string
-	for _, m := range matches {
-		if len(m) >= 3 {
-			funcs = append(funcs, m[2])
-		}
-	}
-	return funcs
 }
 
 // stringSliceContains returns true if the slice contains the value.
