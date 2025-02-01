@@ -20,38 +20,37 @@ import (
 // Language represents a programming language.
 type Language string
 
-// ProjectMetadata holds metadata about the project, including detected languages,
-// relative source file paths, and the ignore patterns derived from .gitignore.
+// ProjectMetadata holds project metadata including source files and ignored patterns.
 type ProjectMetadata struct {
 	Languages    []Language `json:"languages"`
 	SourceFiles  []string   `json:"source_files"`
 	IgnoredFiles []string   `json:"ignored_files"`
 }
 
-// FunctionDependencies represents additional dependency information for a function.
+// FunctionDependencies tracks function relationships and invocations.
 type FunctionDependencies struct {
-	Handlers    []string `json:"handlers"`    // e.g., handler functions used
-	Utilities   []string `json:"utilities"`   // e.g., utility functions used
-	Invocations []string `json:"invocations"` // e.g., file paths where the function is invoked
+	Handlers    []string `json:"handlers"`
+	Utilities   []string `json:"utilities"`
+	Invocations []string `json:"invocations"`
 }
 
-// FunctionInfo represents an extracted function definition.
+// FunctionInfo contains metadata about a Go function.
 type FunctionInfo struct {
 	Name         string               `json:"name"`
-	File         string               `json:"file"` // Relative path (e.g. "/prbuddy-go/cmd/root.go")
+	File         string               `json:"file"`
 	StartLine    int                  `json:"start_line"`
 	EndLine      int                  `json:"end_line"`
-	Imports      []string             `json:"imports"`      // List of file paths that import this function
-	Returns      []string             `json:"returns"`      // List of return types
-	Dependencies FunctionDependencies `json:"dependencies"` // Nested dependency info
+	Imports      []string             `json:"imports"`
+	Returns      []string             `json:"returns"`
+	Dependencies FunctionDependencies `json:"dependencies"`
 }
 
-// ProjectMap holds the function-level dependency map.
+// ProjectMap represents the complete project function mapping.
 type ProjectMap struct {
 	Functions []FunctionInfo `json:"functions"`
 }
 
-// Parser is the interface for tree-sitter–based parsing.
+// Parser interface for project analysis operations.
 type Parser interface {
 	DetectLanguages(rootDir string) ([]Language, error)
 	BuildProjectMetadata(rootDir string) (*ProjectMetadata, error)
@@ -59,18 +58,191 @@ type Parser interface {
 }
 
 // -----------------------------------------------------------------------------
-// GoParser Implementation Using Tree-Sitter
+// GoParser Implementation
 // -----------------------------------------------------------------------------
 
-// GoParser is a concrete implementation of Parser for Go projects using Tree-Sitter.
+// GoParser implements Parser for Go projects using Tree-Sitter.
 type GoParser struct {
-	ignoredPatterns []*regexp.Regexp // Regex patterns compiled from .gitignore
+	ignoredPatterns []*regexp.Regexp
 }
 
 // NewGoParser creates a new GoParser instance.
 func NewGoParser() Parser {
 	return &GoParser{}
 }
+
+// goParserState manages Tree-Sitter parsing state.
+type goParserState struct {
+	parser         *sitter.Parser
+	functionQuery  *sitter.Query
+	importQuery    *sitter.Query
+	functionCursor *sitter.QueryCursor
+	importCursor   *sitter.QueryCursor
+}
+
+// BuildProjectMap constructs a project map with function dependencies.
+func (p *GoParser) BuildProjectMap(rootDir string) (*ProjectMap, error) {
+	metadata, err := p.BuildProjectMetadata(rootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	state, err := p.setupParserState()
+	if err != nil {
+		return nil, err
+	}
+	defer state.parser.Close()
+	defer state.functionCursor.Close()
+	defer state.importCursor.Close()
+
+	var functions []FunctionInfo
+	for _, file := range metadata.SourceFiles {
+		fileFuncs, err := p.processGoFile(state, rootDir, file)
+		if err != nil {
+			continue // Skip problematic files but continue processing
+		}
+		functions = append(functions, fileFuncs...)
+	}
+
+	return &ProjectMap{Functions: functions}, nil
+}
+
+// setupParserState initializes Tree-Sitter components.
+func (p *GoParser) setupParserState() (*goParserState, error) {
+	parser := sitter.NewParser()
+	parser.SetLanguage(golang.GetLanguage())
+
+	// Function declaration query
+	funcQuery, err := sitter.NewQuery([]byte(`
+		(function_declaration
+			name: (identifier) @name
+			result: (_) @result
+		) @func`), golang.GetLanguage())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create function query: %w", err)
+	}
+
+	// Import statement query
+	importQuery, err := sitter.NewQuery([]byte(`
+    (import_spec
+        path: (interpreted_string_literal) @path
+    )`), golang.GetLanguage())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create import query: %w", err)
+	}
+
+	return &goParserState{
+		parser:         parser,
+		functionQuery:  funcQuery,
+		importQuery:    importQuery,
+		functionCursor: sitter.NewQueryCursor(),
+		importCursor:   sitter.NewQueryCursor(),
+	}, nil
+}
+
+// processGoFile handles processing of individual Go files.
+func (p *GoParser) processGoFile(state *goParserState, rootDir string, file string) ([]FunctionInfo, error) {
+	absPath, err := p.resolveAbsPath(rootDir, file)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", absPath, err)
+	}
+
+	tree, err := state.parser.ParseCtx(context.Background(), nil, content)
+	if err != nil || tree == nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", absPath, err)
+	}
+
+	// Extract imports first
+	imports := p.parseImports(state, tree, content)
+
+	// Extract functions with imports
+	functions := p.parseFunctions(state, tree, content, file, imports)
+
+	return functions, nil
+}
+
+// parseImports extracts import paths from a parsed tree.
+func (p *GoParser) parseImports(state *goParserState, tree *sitter.Tree, content []byte) []string {
+	var imports []string
+	state.importCursor.Exec(state.importQuery, tree.RootNode())
+
+	for {
+		match, ok := state.importCursor.NextMatch()
+		if !ok {
+			break
+		}
+
+		for _, capture := range match.Captures {
+			if state.importQuery.CaptureNameForId(capture.Index) == "path" {
+				path := strings.Trim(capture.Node.Content(content), `"`)
+				imports = append(imports, path)
+			}
+		}
+	}
+
+	return imports
+}
+
+// parseFunctions extracts function declarations from a parsed tree.
+func (p *GoParser) parseFunctions(state *goParserState, tree *sitter.Tree, content []byte, file string, imports []string) []FunctionInfo {
+	var functions []FunctionInfo
+	state.functionCursor.Exec(state.functionQuery, tree.RootNode())
+
+	for {
+		match, ok := state.functionCursor.NextMatch()
+		if !ok {
+			break
+		}
+
+		var funcInfo FunctionInfo
+		var returns []string
+
+		for _, capture := range match.Captures {
+			node := capture.Node
+			switch state.functionQuery.CaptureNameForId(capture.Index) {
+			case "func":
+				funcInfo.StartLine = int(node.StartPoint().Row) + 1
+				funcInfo.EndLine = int(node.EndPoint().Row) + 1
+			case "name":
+				funcInfo.Name = node.Content(content)
+			case "result":
+				returns = append(returns, node.Content(content))
+			}
+		}
+
+		if funcInfo.Name != "" {
+			funcInfo.File = file
+			funcInfo.Returns = returns
+			funcInfo.Imports = imports
+			funcInfo.Dependencies = FunctionDependencies{
+				Handlers:    []string{},
+				Utilities:   []string{},
+				Invocations: []string{},
+			}
+			functions = append(functions, funcInfo)
+		}
+	}
+
+	return functions
+}
+
+// resolveAbsPath converts relative path to absolute path.
+func (p *GoParser) resolveAbsPath(rootDir, file string) (string, error) {
+	parts := strings.SplitN(file, "/", 3)
+	if len(parts) < 3 {
+		return filepath.Abs(file)
+	}
+	return filepath.Join(rootDir, parts[2]), nil
+}
+
+// -----------------------------------------------------------------------------
+// Remaining Methods (DetectLanguages, BuildProjectMetadata, patternStrings)
+// -----------------------------------------------------------------------------
 
 // DetectLanguages scans the project for .go files that are not ignored,
 // and returns "go" if any are found.
@@ -139,106 +311,6 @@ func (p *GoParser) BuildProjectMetadata(rootDir string) (*ProjectMetadata, error
 		IgnoredFiles: patternStrings(patterns),
 	}
 	return metadata, nil
-}
-
-// BuildProjectMap parses each Go source file using Tree-Sitter to extract function declarations,
-// return types, and populates placeholders for imports and dependencies.
-func (p *GoParser) BuildProjectMap(rootDir string) (*ProjectMap, error) {
-	metadata, err := p.BuildProjectMetadata(rootDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var functions []FunctionInfo
-
-	tsParser := sitter.NewParser()
-	tsParser.SetLanguage(golang.GetLanguage())
-
-	// Updated Tree-Sitter query to capture function declarations and their return types
-	queryStr := `
-		(function_declaration
-			name: (identifier) @func.name
-			parameters: (parameter_list) @func.params
-			result: (parameter_list) @func.result
-		)
-	`
-
-	query, err := sitter.NewQuery([]byte(queryStr), golang.GetLanguage())
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile tree-sitter query: %w", err)
-	}
-	defer query.Close()
-
-	for _, file := range metadata.SourceFiles {
-		parts := strings.SplitN(file, "/", 3)
-		var absPath string
-		if len(parts) == 3 {
-			absPath = filepath.Join(rootDir, parts[2])
-		} else {
-			absPath = file
-		}
-
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-
-		ctx := context.Background()
-		tree, err := tsParser.ParseCtx(ctx, nil, content)
-		if err != nil || tree == nil {
-			continue
-		}
-
-		qCursor := sitter.NewQueryCursor()
-		qCursor.Exec(query, tree.RootNode())
-
-		for {
-			match, ok := qCursor.NextMatch()
-			if !ok {
-				break
-			}
-
-			var funcName string
-			var returns []string
-			var startLine, endLine int
-
-			for _, capture := range match.Captures {
-				node := capture.Node
-				name := query.CaptureNameForId(capture.Index)
-
-				switch name {
-				case "func.name":
-					funcName = node.Content(content)
-					startLine = int(node.StartPoint().Row) + 1
-					endLine = int(node.EndPoint().Row) + 1
-				case "func.result":
-					returnType := node.Content(content)
-					returns = append(returns, returnType)
-				}
-			}
-
-			if funcName != "" {
-				funcInfo := FunctionInfo{
-					Name:      funcName,
-					File:      file,
-					StartLine: startLine,
-					EndLine:   endLine,
-					Imports:   []string{},
-					Returns:   returns,
-					Dependencies: FunctionDependencies{
-						Handlers:    []string{},
-						Utilities:   []string{},
-						Invocations: []string{},
-					},
-				}
-				functions = append(functions, funcInfo)
-			}
-		}
-		qCursor.Close()
-	}
-
-	projectMap := &ProjectMap{Functions: functions}
-	return projectMap, nil
 }
 
 // patternStrings converts a slice of compiled regexes to their string representations.
