@@ -380,7 +380,7 @@ func GeneratePreDraftPR() (string, string, error) {
 // GenerateDraftPR uses the LLM's chat endpoint to generate a PR draft (stateless).
 func GenerateDraftPR(commitMessage, diffs string) (string, error) {
 	prompt := fmt.Sprintf(`
-You are an assistant designed to generate a detailed pull request (PR) description based on the following commit message and code changes.
+/contextualize: You are a developer, tasked to generate a detailed pull request (PR) description based on the following commit message and code changes.
 
 **Commit Message:**
 %s
@@ -388,7 +388,7 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 **Code Changes:**
 %s
 
-!TASK: Provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks and append the draft PR in code blocks.
+!TASK: Provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks and append the draft PR in code blocks. Do not include line-by-line changes, limit any included snippets to 5 or less lines.
 `, commitMessage, diffs)
 
 	statelessMessages := []contextpkg.Message{

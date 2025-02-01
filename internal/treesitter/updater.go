@@ -11,7 +11,7 @@ import (
 // RefreshProjectKnowledge rebuilds the project metadata and map and saves them.
 // The branchName parameter allows for branch-specific storage if desired.
 func RefreshProjectKnowledge(rootDir, branchName string) error {
-	parser := NewDummyParser()
+	parser := NewGoParser()
 
 	// Build metadata.
 	metadata, err := parser.BuildProjectMetadata(rootDir)
