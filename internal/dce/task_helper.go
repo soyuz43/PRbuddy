@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
@@ -20,7 +21,7 @@ func BuildTaskList(input string) ([]contextpkg.Task, []string, error) {
 	if err != nil {
 		return nil, logs, fmt.Errorf("failed to execute git ls-files: %w", err)
 	}
-	trackedFiles := strings.Split(strings.TrimSpace(out), "\n")
+	trackedFiles := utils.SplitLines(out)
 	logs = append(logs, fmt.Sprintf("Found %d tracked files", len(trackedFiles)))
 
 	// 2. Match files based on keywords.
@@ -97,4 +98,83 @@ func extractFunctionsFromFile(filePath, pattern string) []string {
 		}
 	}
 	return funcs
+}
+
+// RefreshTaskListFromGitChanges checks for unstaged and untracked changes and updates the task list if new files are detected.
+// It uses Git commands to detect changes.
+func RefreshTaskListFromGitChanges(conversationID string) error {
+	conversation, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
+	if !exists {
+		return fmt.Errorf("no active conversation found")
+	}
+
+	// Retrieve unstaged changes.
+	diffOutput, err := utils.ExecGit("diff", "--name-only")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve git diff: %w", err)
+	}
+	unstagedFiles := utils.SplitLines(diffOutput)
+
+	// Retrieve untracked files.
+	untrackedOutput, err := utils.ExecGit("ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve untracked files: %w", err)
+	}
+	untrackedFiles := utils.SplitLines(untrackedOutput)
+
+	// Combine both lists.
+	changedFiles := append(unstagedFiles, untrackedFiles...)
+
+	// Filter out empty entries.
+	var validChangedFiles []string
+	for _, file := range changedFiles {
+		if trimmed := file; trimmed != "" {
+			validChangedFiles = append(validChangedFiles, trimmed)
+		}
+	}
+
+	// For each changed file, if it is not already represented in a task, add a new task.
+	for _, changedFile := range validChangedFiles {
+		existsInTask := false
+		for _, task := range conversation.Tasks {
+			for _, file := range task.Files {
+				if file == changedFile {
+					existsInTask = true
+					break
+				}
+			}
+			if existsInTask {
+				break
+			}
+		}
+		if !existsInTask {
+			newTask := contextpkg.Task{
+				Description: fmt.Sprintf("New file detected: %s", changedFile),
+				Files:       []string{changedFile},
+				Functions:   []string{}, // Optionally, extract functions from the file.
+				Notes:       []string{"Automatically added due to git changes."},
+			}
+			conversation.Tasks = append(conversation.Tasks, newTask)
+			fmt.Printf("[TaskHelper] Added new task for file: %s\n", changedFile)
+		}
+	}
+	return nil
+}
+
+// PeriodicallyRefreshTaskList runs RefreshTaskListFromGitChanges at the specified interval,
+// allowing the task list to be updated periodically based on recent git changes.
+func PeriodicallyRefreshTaskList(conversationID string) {
+	interval := 100 * time.Second // Set the refresh interval to 100 seconds
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+		err := RefreshTaskListFromGitChanges(conversationID)
+		if err != nil {
+			fmt.Printf("[TaskHelper] Error refreshing task list: %v\n", err)
+		} else {
+			fmt.Println("[TaskHelper] Task list refreshed based on git changes.")
+		}
+	}
 }

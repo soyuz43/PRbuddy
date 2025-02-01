@@ -447,7 +447,7 @@ func GetLLMConfig() (string, string) {
 	if m == "" {
 		m = os.Getenv("PRBUDDY_LLM_MODEL")
 		if m == "" {
-			m = "llama3.2:3b-instruct-q6_K"
+			m = "deepseek-r1:8b"
 		}
 	}
 	return m, endpoint
