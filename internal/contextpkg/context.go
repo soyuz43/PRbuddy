@@ -31,6 +31,7 @@ type Conversation struct {
 	Ephemeral      bool
 	InitialDiff    string
 	Messages       []Message
+	Tasks          []Task
 	LastActivity   time.Time
 	DiffTruncation bool
 	mutex          sync.RWMutex
