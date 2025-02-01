@@ -41,6 +41,7 @@ func runInteractiveSession() {
 	fmt.Printf("   %s    - %s\n", green("quickassist"), "Open a persistent chat session with the assistant")
 	fmt.Printf("   %s    - %s\n", green("dce"), "Dynamic Context Engine")
 	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
+	fmt.Printf("   %s    - %s\n", green("map"), "Generate project scaffolds")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show help information")
 	fmt.Printf("   %s    - %s\n", red("remove"), "Uninstall PRBuddy-Go and delete all associated files")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
@@ -74,6 +75,8 @@ func runInteractiveSession() {
 			handleDCECommand()
 		case "serve", "s":
 			handleServeCommand()
+		case "map":
+			handleMapCommand()
 		case "help", "h":
 			printInteractiveHelp()
 		case "remove", "uninstall":
@@ -120,6 +123,13 @@ func showInitialMenu() {
 			color.Red("Unknown command. Type 'help' for available commands.\n")
 		}
 	}
+}
+
+// handleMapCommand calls the map command logic.
+func handleMapCommand() {
+	// We can simply run the mapCmd defined in cmd/map.go.
+	// Since both functions are in the same package, we can call it directly.
+	mapCmd.Run(nil, nil)
 }
 
 // 🟢 Quick Assist Handlers
@@ -350,6 +360,7 @@ func printInteractiveHelp() {
 	fmt.Printf("   %s    - %s\n", green("quickassist"), "Open a persistent chat session with the assistant")
 	fmt.Printf("   %s    - %s\n", green("dce"), "Dynamic Context Engine")
 	fmt.Printf("   %s    - %s\n", green("serve"), "Start API server for extension integration")
+	fmt.Printf("   %s    - %s\n", green("map"), "Generate project scaffolds")
 	fmt.Printf("   %s    - %s\n", green("help"), "Show this help information")
 	fmt.Printf("   %s    - %s\n", red("remove"), "Uninstall PRBuddy-Go and delete all associated files")
 	fmt.Printf("   %s    - %s\n", green("exit"), "Exit the tool")
