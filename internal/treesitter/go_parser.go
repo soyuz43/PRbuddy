@@ -122,7 +122,6 @@ func (p *GoParser) setupParserState() (*goParserState, error) {
 		return nil, fmt.Errorf("failed to create function query: %w", err)
 	}
 
-	// Import statement query
 	importQuery, err := sitter.NewQuery([]byte(`
     (import_spec
         path: (interpreted_string_literal) @path
