@@ -40,7 +40,6 @@ type FunctionInfo struct {
 	File         string               `json:"file"`
 	StartLine    int                  `json:"start_line"`
 	EndLine      int                  `json:"end_line"`
-	Imports      []string             `json:"imports"`
 	Returns      []string             `json:"returns"`
 	Dependencies FunctionDependencies `json:"dependencies"`
 }
@@ -61,7 +60,7 @@ type Parser interface {
 // GoParser Implementation
 // -----------------------------------------------------------------------------
 
-// GoParser implements Parser for Go projects using Tree-Sitter.
+// GoParser implements Parser for Go projects using Tree-sitter.
 type GoParser struct {
 	ignoredPatterns []*regexp.Regexp
 }
@@ -75,9 +74,7 @@ func NewGoParser() Parser {
 type goParserState struct {
 	parser         *sitter.Parser
 	functionQuery  *sitter.Query
-	importQuery    *sitter.Query
 	functionCursor *sitter.QueryCursor
-	importCursor   *sitter.QueryCursor
 }
 
 // BuildProjectMap constructs a project map with function dependencies.
@@ -93,7 +90,6 @@ func (p *GoParser) BuildProjectMap(rootDir string) (*ProjectMap, error) {
 	}
 	defer state.parser.Close()
 	defer state.functionCursor.Close()
-	defer state.importCursor.Close()
 
 	var functions []FunctionInfo
 	for _, file := range metadata.SourceFiles {
@@ -112,30 +108,25 @@ func (p *GoParser) setupParserState() (*goParserState, error) {
 	parser := sitter.NewParser()
 	parser.SetLanguage(golang.GetLanguage())
 
-	// Function declaration query
 	funcQuery, err := sitter.NewQuery([]byte(`
-		(function_declaration
-			name: (identifier) @name
-			result: (_) @result
-		) @func`), golang.GetLanguage())
+    (function_declaration
+        name: (identifier) @name
+        parameters: (parameter_list) @parameters
+        result: [
+            (type_identifier)         ; Single return type
+            (parameter_list)          ; Multiple return types
+        ]? @return_type
+        body: (block) @body
+    ) @func
+`), golang.GetLanguage())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create function query: %w", err)
-	}
-
-	importQuery, err := sitter.NewQuery([]byte(`
-    (import_spec
-        path: (interpreted_string_literal) @path
-    )`), golang.GetLanguage())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create import query: %w", err)
 	}
 
 	return &goParserState{
 		parser:         parser,
 		functionQuery:  funcQuery,
-		importQuery:    importQuery,
 		functionCursor: sitter.NewQueryCursor(),
-		importCursor:   sitter.NewQueryCursor(),
 	}, nil
 }
 
@@ -151,44 +142,25 @@ func (p *GoParser) processGoFile(state *goParserState, rootDir string, file stri
 		return nil, fmt.Errorf("failed to read %s: %w", absPath, err)
 	}
 
+	// Parse the file content into a syntax tree (CST) in memory.
 	tree, err := state.parser.ParseCtx(context.Background(), nil, content)
 	if err != nil || tree == nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", absPath, err)
 	}
 
-	// Extract imports first
-	imports := p.parseImports(state, tree, content)
+	// === Dump the syntax tree for inspection ===
+	if err := saveSyntaxTree(file, tree, content); err != nil {
+		fmt.Printf("Warning: Failed to save syntax tree for %s: %s\n", absPath, err)
+	}
 
-	// Extract functions with imports
-	functions := p.parseFunctions(state, tree, content, file, imports)
+	// Extract function metadata and dependencies
+	functions := p.parseFunctions(state, tree, content, file)
 
 	return functions, nil
 }
 
-// parseImports extracts import paths from a parsed tree.
-func (p *GoParser) parseImports(state *goParserState, tree *sitter.Tree, content []byte) []string {
-	var imports []string
-	state.importCursor.Exec(state.importQuery, tree.RootNode())
-
-	for {
-		match, ok := state.importCursor.NextMatch()
-		if !ok {
-			break
-		}
-
-		for _, capture := range match.Captures {
-			if state.importQuery.CaptureNameForId(capture.Index) == "path" {
-				path := strings.Trim(capture.Node.Content(content), `"`)
-				imports = append(imports, path)
-			}
-		}
-	}
-
-	return imports
-}
-
-// parseFunctions extracts function declarations from a parsed tree.
-func (p *GoParser) parseFunctions(state *goParserState, tree *sitter.Tree, content []byte, file string, imports []string) []FunctionInfo {
+// parseFunctions extracts function declarations and dependencies from a parsed tree.
+func (p *GoParser) parseFunctions(state *goParserState, tree *sitter.Tree, content []byte, file string) []FunctionInfo {
 	var functions []FunctionInfo
 	state.functionCursor.Exec(state.functionQuery, tree.RootNode())
 
@@ -200,29 +172,73 @@ func (p *GoParser) parseFunctions(state *goParserState, tree *sitter.Tree, conte
 
 		var funcInfo FunctionInfo
 		var returns []string
+		var bodyNode *sitter.Node
 
+		// Process captures from the function query.
 		for _, capture := range match.Captures {
 			node := capture.Node
 			switch state.functionQuery.CaptureNameForId(capture.Index) {
-			case "func":
-				funcInfo.StartLine = int(node.StartPoint().Row) + 1
-				funcInfo.EndLine = int(node.EndPoint().Row) + 1
 			case "name":
-				funcInfo.Name = node.Content(content)
-			case "result":
-				returns = append(returns, node.Content(content))
+				funcInfo.Name = string(node.Content(content))
+			case "return_type":
+				returns = append(returns, string(node.Content(content)))
+			case "body":
+				bodyNode = node
+				funcInfo.StartLine = int(node.Parent().StartPoint().Row) + 1
+				funcInfo.EndLine = int(node.Parent().EndPoint().Row) + 1
+			}
+		}
+		funcInfo.Returns = returns
+		funcInfo.File = file
+
+		// Initialize dependencies.
+		funcInfo.Dependencies = FunctionDependencies{}
+
+		// Extract function dependencies.
+		if bodyNode != nil {
+			depQuery, err := sitter.NewQuery([]byte(`
+				(call_expression
+					function: (identifier) @invocation
+				)
+			`), golang.GetLanguage())
+
+			if err == nil {
+				depCursor := sitter.NewQueryCursor()
+				depCursor.Exec(depQuery, bodyNode)
+
+				for {
+					depMatch, ok := depCursor.NextMatch()
+					if !ok {
+						break
+					}
+					for _, depCapture := range depMatch.Captures {
+						if depQuery.CaptureNameForId(depCapture.Index) == "invocation" {
+							invocationName := string(depCapture.Node.Content(content))
+
+							// Check if the function is locally defined in the same file (utility function).
+							isUtility := false
+							for _, f := range functions {
+								if f.Name == invocationName {
+									isUtility = true
+									break
+								}
+							}
+
+							// Categorize dependencies
+							if strings.HasPrefix(invocationName, "Handle") {
+								funcInfo.Dependencies.Handlers = append(funcInfo.Dependencies.Handlers, invocationName)
+							} else if isUtility {
+								funcInfo.Dependencies.Utilities = append(funcInfo.Dependencies.Utilities, invocationName)
+							} else {
+								funcInfo.Dependencies.Invocations = append(funcInfo.Dependencies.Invocations, invocationName)
+							}
+						}
+					}
+				}
 			}
 		}
 
 		if funcInfo.Name != "" {
-			funcInfo.File = file
-			funcInfo.Returns = returns
-			funcInfo.Imports = imports
-			funcInfo.Dependencies = FunctionDependencies{
-				Handlers:    []string{},
-				Utilities:   []string{},
-				Invocations: []string{},
-			}
 			functions = append(functions, funcInfo)
 		}
 	}
@@ -230,7 +246,7 @@ func (p *GoParser) parseFunctions(state *goParserState, tree *sitter.Tree, conte
 	return functions
 }
 
-// resolveAbsPath converts relative path to absolute path.
+// resolveAbsPath converts a relative path to an absolute path.
 func (p *GoParser) resolveAbsPath(rootDir, file string) (string, error) {
 	parts := strings.SplitN(file, "/", 3)
 	if len(parts) < 3 {
@@ -238,10 +254,6 @@ func (p *GoParser) resolveAbsPath(rootDir, file string) (string, error) {
 	}
 	return filepath.Join(rootDir, parts[2]), nil
 }
-
-// -----------------------------------------------------------------------------
-// Remaining Methods (DetectLanguages, BuildProjectMetadata, patternStrings)
-// -----------------------------------------------------------------------------
 
 // DetectLanguages scans the project for .go files that are not ignored,
 // and returns "go" if any are found.
@@ -270,10 +282,10 @@ func (p *GoParser) DetectLanguages(rootDir string) ([]Language, error) {
 // BuildProjectMetadata scans for .go files (converting absolute paths
 // to relative paths based on the repository's base name) and loads .gitignore patterns.
 func (p *GoParser) BuildProjectMetadata(rootDir string) (*ProjectMetadata, error) {
-	// Read .gitignore patterns
+	// Read .gitignore patterns.
 	patterns, err := utils.ReadGitignore(rootDir)
 	if err != nil {
-		// If .gitignore doesn't exist or fails to open, proceed with no patterns
+		// If .gitignore doesn't exist or fails to open, proceed with no patterns.
 		patterns = []*regexp.Regexp{}
 	}
 	p.ignoredPatterns = patterns
@@ -319,4 +331,38 @@ func patternStrings(patterns []*regexp.Regexp) []string {
 		out = append(out, pat.String())
 	}
 	return out
+}
+
+// -----------------------------------------------------------------------------
+// Dump Tree Utilities
+// -----------------------------------------------------------------------------
+
+// dumpTree recursively builds an indented string representation of the syntax tree.
+// It includes each node's type and its start/end positions.
+func dumpTree(node *sitter.Node, source []byte, indent string) string {
+	result := fmt.Sprintf("%s%s [%d:%d - %d:%d]\n",
+		indent,
+		node.Type(),
+		node.StartPoint().Row, node.StartPoint().Column,
+		node.EndPoint().Row, node.EndPoint().Column)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		result += dumpTree(child, source, indent+"  ")
+	}
+	return result
+}
+
+// saveSyntaxTree saves the full syntax tree to a file for inspection.
+// The file is written to .git/prbuddy_db/scaffold/<filename>_tree.txt.
+func saveSyntaxTree(file string, tree *sitter.Tree, source []byte) error {
+	scaffoldDir := filepath.Join(".git", "prbuddy_db", "scaffold")
+	if err := os.MkdirAll(scaffoldDir, 0755); err != nil {
+		return fmt.Errorf("failed to create scaffold directory: %w", err)
+	}
+	outputFile := filepath.Join(scaffoldDir, filepath.Base(file)+"_tree.txt")
+	treeDump := dumpTree(tree.RootNode(), source, "")
+	if err := os.WriteFile(outputFile, []byte(treeDump), 0644); err != nil {
+		return fmt.Errorf("failed to write syntax tree to file: %w", err)
+	}
+	return nil
 }
