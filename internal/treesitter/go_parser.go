@@ -109,16 +109,23 @@ func (p *GoParser) setupParserState() (*goParserState, error) {
 	parser.SetLanguage(golang.GetLanguage())
 
 	funcQuery, err := sitter.NewQuery([]byte(`
-    (function_declaration
-        name: (identifier) @name
-        parameters: (parameter_list) @parameters
-        result: [
-            (type_identifier)         ; Single return type
-            (parameter_list)          ; Multiple return types
-        ]? @return_type
-        body: (block) @body
-    ) @func
-`), golang.GetLanguage())
+(function_declaration
+  name: (identifier) @name
+  parameters: (parameter_list
+    (parameter_declaration
+      name: (identifier)? @param_name
+      type: (_) @param_type
+    )*
+  ) @parameters
+  result: (parameter_list
+    (parameter_declaration
+      name: (identifier)? @return_name
+      type: (_) @return_type
+    )*
+  )? @results
+  body: (block) @body
+) @func
+  `), golang.GetLanguage())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create function query: %w", err)
 	}
