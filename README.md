@@ -30,8 +30,18 @@ Whether you're working solo or in a team, PRBuddy helps you keep your code expla
 
 ### Prerequisites
 
-- Go 1.20 or later
-- Git (with a local repo)
+Before using PRBuddy-Go, make sure the following are installed on your system:
+
+- **Go** 1.20 or later
+- **Git** (with a local repository)
+- **[Ollama](https://ollama.ai/)** – a local LLM runtime for running models like `llama3` or `codellama`.
+
+> 🧠 PRBuddy-Go uses Ollama to run large language models *locally* for generating PR drafts and summaries.
+
+#### Install Ollama
+
+Follow the official instructions at [https://ollama.ai/download](https://ollama.ai/download)
+
 
 ### Install
 
