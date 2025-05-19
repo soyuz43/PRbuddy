@@ -1,4 +1,4 @@
-# PRBuddy-Go 🚀🤖
+# PRBuddy-Go 
 
 > Automate pull request drafting and code reasoning with your Git history – powered by LLMs and Git hooks.
 
