@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -434,21 +435,37 @@ These are the git diffs for the repository:
 	return llmClient.GetChatResponse(statelessMessages)
 }
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // UTILITY FUNCTION: reads model/endpoint from environment
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 
 func GetLLMConfig() (string, string) {
 	endpoint := os.Getenv("PRBUDDY_LLM_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://localhost:11434"
 	}
-	m := contextpkg.GetActiveModel()
-	if m == "" {
-		m = os.Getenv("PRBUDDY_LLM_MODEL")
-		if m == "" {
-			m = "deepseek-r1:8b"
+
+	model := contextpkg.GetActiveModel()
+	if model != "" {
+		return model, endpoint
+	}
+
+	models, err := fetchOllamaModels()
+	if err == nil && len(models) > 0 {
+		// Select most recent by default
+		latest := models[0]
+		if name, ok := latest["name"].(string); ok {
+			setActiveModel(name)
+			return name, endpoint
 		}
 	}
-	return m, endpoint
+
+	// No models found — fallback to qwen3
+	logrus.Warn("No LLM model active or available; defaulting to 'qwen3'")
+	go func() {
+		_ = exec.Command("ollama", "run", "qwen3").Start()
+	}()
+
+	setActiveModel("qwen3")
+	return "qwen3", endpoint
 }
