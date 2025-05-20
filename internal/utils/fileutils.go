@@ -7,8 +7,8 @@ import (
 	"syscall"
 )
 
-// WriteFile performs an atomic write to the given file path by writing to a temporary file
-// with an exclusive lock, then renaming it into place.
+// ! WriteFile performs an atomic write to the given file path by writing to a temporary file
+// ! with an exclusive lock, then renaming it into place.
 func WriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
