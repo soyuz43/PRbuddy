@@ -45,11 +45,8 @@ Follow the official instructions at [https://ollama.ai/download](https://ollama.
 
 ### Install
 
-```bash
-go install github.com/soyuz43/prbuddy-go@latest
-```
 
-> Or clone and build manually:
+> Clone and build manually:
 
 ```bash
 git clone https://github.com/soyuz43/PRbuddy.git
