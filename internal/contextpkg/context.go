@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// -----------------------------------------------------------------------------
+// Chat Structures and LLM Context
+// -----------------------------------------------------------------------------
+
 // Message represents a chat message.
 type Message struct {
 	Role      string        `json:"role"`                 // e.g., "user", "assistant", "system"
@@ -107,7 +111,6 @@ func (c *Conversation) AddMessage(role, content string) {
 }
 
 // BuildContext constructs the conversation context to be sent to the LLM.
-// It starts with a system message and then appends all conversation messages.
 func (c *Conversation) BuildContext() []Message {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
@@ -123,7 +126,6 @@ func (c *Conversation) BuildContext() []Message {
 }
 
 // SetMessages replaces the conversation's messages with the provided slice.
-// This method was missing and is now added to fix the undefined error.
 func (c *Conversation) SetMessages(newMessages []Message) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -137,14 +139,7 @@ func GenerateConversationID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// GetActiveModel returns the currently active LLM model.
-// (This is a stub and can be expanded with real logic as needed.)
-func GetActiveModel() string {
-	return ""
-}
-
 // TruncateDiff reduces the diff size to at most maxLines while preserving key information.
-// (More sophisticated truncation logic should reside in the DCE module if needed.)
 func TruncateDiff(diff string, maxLines int) string {
 	lines := strings.Split(strings.TrimSuffix(diff, "\n"), "\n")
 	if len(lines) <= maxLines {
@@ -155,3 +150,26 @@ func TruncateDiff(diff string, maxLines int) string {
 
 // ConversationManagerInstance is a global singleton instance of ConversationManager.
 var ConversationManagerInstance = NewConversationManager()
+
+// -----------------------------------------------------------------------------
+// Global LLM Model State
+// -----------------------------------------------------------------------------
+
+var (
+	modelMutex     sync.RWMutex
+	activeLLMModel string
+)
+
+// SetActiveModel sets the currently active model name (thread-safe).
+func SetActiveModel(model string) {
+	modelMutex.Lock()
+	defer modelMutex.Unlock()
+	activeLLMModel = model
+}
+
+// GetActiveModel retrieves the current model name (thread-safe).
+func GetActiveModel() string {
+	modelMutex.RLock()
+	defer modelMutex.RUnlock()
+	return activeLLMModel
+}

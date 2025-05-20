@@ -455,7 +455,7 @@ func GetLLMConfig() (string, string) {
 		// Select most recent by default
 		latest := models[0]
 		if name, ok := latest["name"].(string); ok {
-			setActiveModel(name)
+			contextpkg.SetActiveModel(name)
 			return name, endpoint
 		}
 	}
@@ -466,6 +466,6 @@ func GetLLMConfig() (string, string) {
 		_ = exec.Command("ollama", "run", "qwen3").Start()
 	}()
 
-	setActiveModel("qwen3")
+	contextpkg.SetActiveModel("qwen3")
 	return "qwen3", endpoint
 }

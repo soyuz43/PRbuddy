@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -20,10 +19,6 @@ import (
 )
 
 // Global model config in memory
-var (
-	modelMutex     sync.RWMutex
-	activeLLMModel string
-)
 
 const (
 	defaultHost              = "localhost"
@@ -220,25 +215,12 @@ func setModelHandler() http.HandlerFunc {
 		if req.Model == "" {
 			return nil, fmt.Errorf("missing 'model' field")
 		}
-		setActiveModel(req.Model)
+		contextpkg.SetActiveModel(req.Model)
 		return map[string]string{
 			"status":       "model updated",
-			"active_model": getActiveModel(),
+			"active_model": contextpkg.GetActiveModel(),
 		}, nil
 	})
-}
-
-// Model management functions
-func setActiveModel(model string) {
-	modelMutex.Lock()
-	defer modelMutex.Unlock()
-	activeLLMModel = model
-}
-
-func getActiveModel() string {
-	modelMutex.RLock()
-	defer modelMutex.RUnlock()
-	return activeLLMModel
 }
 
 func fetchOllamaModels() ([]map[string]interface{}, error) {
