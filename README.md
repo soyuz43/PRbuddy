@@ -64,6 +64,16 @@ prbuddy-go init        # Installs Git hook + .git/pr_buddy_db
 git add .
 git commit -m "feat: add logging"  # Triggers PR draft generation
 ```
+---
+
+## ⚙️ Model Selection
+
+PRBuddy-Go will use:
+
+1. The model set via the extension (`/extension/model`)
+2. `PRBUDDY_LLM_MODEL` environment variable
+3. The most recently pulled model (auto-detected)
+4. If no models are found, PRBuddy will automatically run `qwen3` locally via Ollama.
 
 ---
 
