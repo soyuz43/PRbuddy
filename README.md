@@ -18,11 +18,11 @@ Whether you're working solo or in a team, PRBuddy helps you keep your code expla
 
 ## 🛠 Features
 
-- 🧠 **LLM-powered PR Drafts**: Hooks into `post-commit` to auto-generate contextual pull request messages.
-- 💬 **Quick Assist Chat**: Get fast, contextual help from an LLM in your terminal.
-- 🕵️ **"What did I just do?"** summaries with `prbuddy-go what`
-- ⚙️ **Optional Git hook installation** during `init`
-- 🧼 **Cleanup** with `prbuddy-go remove`
+-  **LLM-powered PR Drafts**: Hooks into `post-commit` to auto-generate contextual pull request messages.
+-  **Quick Assist Chat**: Get fast, contextual help from an LLM in your terminal.
+-  **"What did I just do?"** summaries with `prbuddy-go what`
+-  **Optional Git hook installation** during `init`
+-  **Cleanup** with `prbuddy-go remove`
 
 ---
 
@@ -36,7 +36,7 @@ Before using PRBuddy-Go, make sure the following are installed on your system:
 - **Git** (with a local repository)
 - **[Ollama](https://ollama.ai/)** – a local LLM runtime for running models like `llama3` or `codellama`.
 
-> 🧠 PRBuddy-Go uses Ollama to run large language models *locally* for generating PR drafts and summaries.
+> PRBuddy-Go uses Ollama to run large language models *locally* for generating PR drafts and summaries.
 
 #### Install Ollama
 
