@@ -89,7 +89,7 @@ PRBuddy-Go will use:
 
 ---
 
-## 🧠 How It Works
+## How It Works
 
 * Uses **Git hooks** to run logic after commits
 * Detects branch, commit, diff context
