@@ -436,7 +436,7 @@ These are the git diffs for the repository:
 }
 
 // ------------------------------------------------------------------------------
-// UTILITY FUNCTION: reads model/endpoint from environment
+// UTILITY FUNCTIONS: LLM config resolution + model readiness
 // ------------------------------------------------------------------------------
 
 func GetLLMConfig() (string, string) {
@@ -450,9 +450,9 @@ func GetLLMConfig() (string, string) {
 		return model, endpoint
 	}
 
-	models, err := fetchOllamaModels()
+	// Try to load available models via official endpoint
+	models, err := fetchOllamaModels(endpoint)
 	if err == nil && len(models) > 0 {
-		// Select most recent by default
 		latest := models[0]
 		if name, ok := latest["name"].(string); ok {
 			contextpkg.SetActiveModel(name)
@@ -460,12 +460,64 @@ func GetLLMConfig() (string, string) {
 		}
 	}
 
-	// No models found — fallback to qwen3
+	// No models found — fallback to qwen3 and run it
 	logrus.Warn("No LLM model active or available; defaulting to 'qwen3'")
-	go func() {
-		_ = exec.Command("ollama", "run", "qwen3").Start()
-	}()
+
+	// Try to pre-warm the model with a dummy chat request
+	ready := tryEnsureModelReady(endpoint, "qwen3")
+	if !ready {
+		logrus.Warn("Attempting to start Ollama model 'qwen3' manually...")
+		cmd := exec.Command("ollama", "run", "qwen3")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			logrus.Errorf("Failed to start Ollama: %v", err)
+		}
+		// Crude wait; improve with polling if needed
+		time.Sleep(3 * time.Second)
+	}
 
 	contextpkg.SetActiveModel("qwen3")
 	return "qwen3", endpoint
+}
+
+func fetchOllamaModels(endpoint string) ([]map[string]interface{}, error) {
+	resp, err := http.Get(endpoint + "/api/tags")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Ollama: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Models []map[string]interface{} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return result.Models, nil
+}
+
+// tryEnsureModelReady attempts to verify whether a model is loaded and available
+func tryEnsureModelReady(endpoint, model string) bool {
+	payload := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+		"stream": false,
+	}
+	data, _ := json.Marshal(payload)
+
+	resp, err := http.Post(endpoint+"/api/chat", "application/json", bytes.NewReader(data))
+	if err != nil {
+		logrus.Warnf("Model readiness check failed: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
 }
