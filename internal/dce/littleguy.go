@@ -65,27 +65,30 @@ func (lg *LittleGuy) MonitorInput(input string) {
 
 	lines := strings.Split(input, "\n")
 	for _, line := range lines {
-		// Use centralized FuncPattern from dce_helper.go.
 		if matches := FuncPattern.FindStringSubmatch(line); len(matches) >= 3 {
 			funcName := matches[2]
-			lg.tasks = append(lg.tasks, contextpkg.Task{
-				Description: fmt.Sprintf("Detected function: %s", funcName),
-				Functions:   []string{funcName},
-				Notes:       []string{"Consider testing and documenting this function."},
-			})
+			if !lg.hasTaskForFunction(funcName) {
+				lg.tasks = append(lg.tasks, contextpkg.Task{
+					Description: fmt.Sprintf("Detected function: %s", funcName),
+					Functions:   []string{funcName},
+					Notes:       []string{"Consider testing and documenting this function."},
+				})
+			}
 		}
-		// Simple heuristic for file references.
+
 		if strings.Contains(line, ".go") || strings.Contains(line, ".js") ||
 			strings.Contains(line, ".py") || strings.Contains(line, ".ts") {
 			words := strings.Fields(line)
 			for _, word := range words {
 				if strings.Contains(word, ".go") || strings.Contains(word, ".js") ||
 					strings.Contains(word, ".py") || strings.Contains(word, ".ts") {
-					lg.tasks = append(lg.tasks, contextpkg.Task{
-						Description: fmt.Sprintf("Detected file reference: %s", word),
-						Files:       []string{word},
-						Notes:       []string{"Consider adding to code snapshots or tasks."},
-					})
+					if !lg.hasTaskForFile(word) {
+						lg.tasks = append(lg.tasks, contextpkg.Task{
+							Description: fmt.Sprintf("Detected file reference: %s", word),
+							Files:       []string{word},
+							Notes:       []string{"Consider adding to code snapshots or tasks."},
+						})
+					}
 				}
 			}
 		}
@@ -106,18 +109,18 @@ func (lg *LittleGuy) UpdateFromDiff(diff string) {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "+") {
-			// Process added lines.
 			content := trimmed[1:]
 			funcs := ParseFunctionNames(content)
 			for _, fn := range funcs {
-				lg.tasks = append(lg.tasks, contextpkg.Task{
-					Description: fmt.Sprintf("New function added: %s", fn),
-					Functions:   []string{fn},
-					Notes:       []string{"Update tests and documentation accordingly."},
-				})
+				if !lg.hasTaskForFunction(fn) {
+					lg.tasks = append(lg.tasks, contextpkg.Task{
+						Description: fmt.Sprintf("New function added: %s", fn),
+						Functions:   []string{fn},
+						Notes:       []string{"Update tests and documentation accordingly."},
+					})
+				}
 			}
 		} else if strings.HasPrefix(trimmed, "-") {
-			// Process removed lines.
 			content := trimmed[1:]
 			funcs := ParseFunctionNames(content)
 			for _, fn := range funcs {
@@ -148,12 +151,11 @@ func (lg *LittleGuy) BuildEphemeralContext(userQuery string) []contextpkg.Messag
 	defer lg.mutex.RUnlock()
 
 	var messages []contextpkg.Message
-	// System introduction.
 	messages = append(messages, contextpkg.Message{
 		Role:    "system",
 		Content: "You are a helpful developer assistant. Below is the current task list and code snapshots.",
 	})
-	// Summarize uncompleted tasks.
+
 	if len(lg.tasks) > 0 {
 		var builder strings.Builder
 		for i, t := range lg.tasks {
@@ -174,7 +176,7 @@ func (lg *LittleGuy) BuildEphemeralContext(userQuery string) []contextpkg.Messag
 			Content: builder.String(),
 		})
 	}
-	// Include code snapshots.
+
 	if len(lg.codeSnapshots) > 0 {
 		var builder strings.Builder
 		for path, content := range lg.codeSnapshots {
@@ -185,7 +187,7 @@ func (lg *LittleGuy) BuildEphemeralContext(userQuery string) []contextpkg.Messag
 			Content: builder.String(),
 		})
 	}
-	// Add user query.
+
 	messages = append(messages, contextpkg.Message{
 		Role:    "user",
 		Content: userQuery,
@@ -200,11 +202,22 @@ func (lg *LittleGuy) AddCodeSnippet(filePath, content string) {
 	lg.codeSnapshots[filePath] = content
 }
 
-// UpdateTaskList appends new tasks to the current in-memory task list.
+// UpdateTaskList appends new tasks if they’re not already represented.
 func (lg *LittleGuy) UpdateTaskList(newTasks []contextpkg.Task) {
 	lg.mutex.Lock()
 	defer lg.mutex.Unlock()
-	lg.tasks = append(lg.tasks, newTasks...)
+	for _, t := range newTasks {
+		duplicate := false
+		for _, existing := range lg.tasks {
+			if t.Description == existing.Description {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			lg.tasks = append(lg.tasks, t)
+		}
+	}
 }
 
 // logLLMContext writes the raw LLM input to a log file using utils.LogLittleGuyContext.
@@ -216,4 +229,28 @@ func (lg *LittleGuy) logLLMContext(messages []contextpkg.Message) {
 	if err := utils.LogLittleGuyContext(lg.conversationID, rawContext.String()); err != nil {
 		color.Red("[LittleGuy] Failed to log LLM context: %v\n", err)
 	}
+}
+
+// hasTaskForFile returns true if any task already includes the file.
+func (lg *LittleGuy) hasTaskForFile(file string) bool {
+	for _, task := range lg.tasks {
+		for _, f := range task.Files {
+			if f == file {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasTaskForFunction returns true if any task already includes the function.
+func (lg *LittleGuy) hasTaskForFunction(fn string) bool {
+	for _, task := range lg.tasks {
+		for _, f := range task.Functions {
+			if f == fn {
+				return true
+			}
+		}
+	}
+	return false
 }
