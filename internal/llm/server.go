@@ -4,7 +4,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -206,7 +205,11 @@ func whatHandler() http.HandlerFunc {
 
 func listModelsHandler() http.HandlerFunc {
 	return JSONHandler(func(_ struct{}) (any, error) {
-		return fetchOllamaModels()
+		endpoint := os.Getenv("PRBUDDY_LLM_ENDPOINT")
+		if endpoint == "" {
+			endpoint = "http://localhost:11434"
+		}
+		return fetchOllamaModels(endpoint)
 	})
 }
 
@@ -221,34 +224,4 @@ func setModelHandler() http.HandlerFunc {
 			"active_model": contextpkg.GetActiveModel(),
 		}, nil
 	})
-}
-
-func fetchOllamaModels() ([]map[string]interface{}, error) {
-	resp, err := http.Get("http://localhost:11434/api/ps")
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Ollama: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	modelsRaw, ok := result["models"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid models format")
-	}
-
-	var models []map[string]interface{}
-	for _, item := range modelsRaw {
-		if m, valid := item.(map[string]interface{}); valid {
-			models = append(models, m)
-		}
-	}
-	return models, nil
 }
