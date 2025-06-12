@@ -340,7 +340,7 @@ You are an assistant designed to generate a detailed pull request (PR) descripti
 **Code Changes:**
 %s
 
-!TASK: Provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks and append the draft PR in code blocks.
+!TASK: Provide a comprehensive PR title and description that explain the changes and adhere to documentation and GitHub best practices. Format the pull request in raw markdown with headers. Clearly separate the pull request and other components of the response with three backticks. In fact, wrap the entire output in triple backticks. The entire output must be a single raw markdown code block, with no additional commentary or explanation outside the code block.
 `, commitMessage, diffs)
 
 	// Add initial user message
