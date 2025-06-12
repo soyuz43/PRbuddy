@@ -85,3 +85,13 @@ func IsIgnored(path string, patterns []*regexp.Regexp) bool {
 	}
 	return false
 }
+
+// GetCurrentBranch returns the current Git branch name.
+func GetCurrentBranch() (string, error) {
+	return ExecGit("rev-parse", "--abbrev-ref", "HEAD")
+}
+
+// GetLatestCommit returns the full SHA of the latest commit (HEAD).
+func GetLatestCommit() (string, error) {
+	return ExecGit("rev-parse", "HEAD")
+}
