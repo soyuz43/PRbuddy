@@ -8,7 +8,7 @@
 
 ---
 
-## ✨ What Is PRBuddy-Go?
+## What Is PRBuddy-Go?
 
 PRBuddy-Go is a lightweight CLI assistant that integrates into your Git workflow. It automatically generates pull request drafts after every commit and helps you understand your changes with natural language summaries.
 
@@ -16,7 +16,7 @@ Whether you're working solo or in a team, PRBuddy helps you keep your code expla
 
 ---
 
-## 🛠 Features
+## Features
 
 -  **LLM-powered PR Drafts**: Hooks into `post-commit` to auto-generate contextual pull request messages.
 -  **Quick Assist Chat**: Get fast, contextual help from an LLM in your terminal.
@@ -26,7 +26,7 @@ Whether you're working solo or in a team, PRBuddy helps you keep your code expla
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 
@@ -56,7 +56,7 @@ go build -o prbuddy-go
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ```bash
 cd your-project/
@@ -77,7 +77,7 @@ PRBuddy-Go will use:
 
 ---
 
-## 🧪 Commands
+## Commands
 
 | Command               | Description                                               |
 | --------------------- | --------------------------------------------------------- |
@@ -97,24 +97,25 @@ PRBuddy-Go will use:
 * Generates structured PR drafts
 * Stores metadata in `.git/pr_buddy_db` for traceability
 
-> ✅ You can disable or uninstall anytime using: `prbuddy-go remove`
+>  You can disable or uninstall anytime using: `prbuddy-go remove`
 
 ---
 
-## 🔐 Privacy & Security
+## Privacy & Security
 
 PRBuddy reads your local Git data and may transmit code context to an LLM service. Make sure you're comfortable with the models you're using and consider privacy policies if sensitive code is involved.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 This project is in early development. Bug reports, ideas, and PRs are welcome!
 
 ---
 
-## 📄 License
+## License
 
 MIT © [soyuz43](https://github.com/soyuz43)
+
 
 
