@@ -22,6 +22,8 @@ type LittleGuy struct {
 	codeSnapshots  map[string]string // filePath -> file content
 	pollInterval   time.Duration     // How often to check for diffs
 	monitorStarted bool              // Tracks background monitoring status
+	pendingQueries []string
+	queryCallback  func(string)
 }
 
 // NewLittleGuy initializes a new LittleGuy instance.
@@ -142,34 +144,130 @@ func (lg *LittleGuy) UpdateFromDiff(diff string) {
 	lg.mutex.Lock()
 	defer lg.mutex.Unlock()
 
-	lines := strings.Split(diff, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if len(trimmed) == 0 {
-			continue
+	// Parse the diff to identify specific changes
+	changes := ParseGitDiff(diff)
+
+	// Process each change to generate appropriate tasks
+	for _, change := range changes {
+		switch change.Type {
+		case "new_file":
+			lg.handleNewFile(change)
+		case "modified":
+			lg.handleModifiedFile(change)
+		case "deleted":
+			lg.handleDeletedFile(change)
 		}
-		if strings.HasPrefix(trimmed, "+") {
-			content := trimmed[1:]
-			funcs := ParseFunctionNames(content)
-			for _, fn := range funcs {
-				if !lg.hasTaskForFunction(fn) {
-					lg.tasks = append(lg.tasks, contextpkg.Task{
-						Description: fmt.Sprintf("New function added: %s", fn),
-						Functions:   []string{fn},
-						Notes:       []string{"Update tests and documentation accordingly."},
-					})
-				}
+	}
+
+	// Log the updated context for debugging
+	messages := lg.BuildEphemeralContext("")
+	lg.logLLMContext(messages)
+}
+
+// ParseGitDiff extracts meaningful changes from git diff output
+func ParseGitDiff(diff string) []GitChange {
+	var changes []GitChange
+	currentFile := ""
+	lines := strings.Split(diff, "\n")
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git") {
+			// Extract file path
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				currentFile = strings.TrimPrefix(parts[2], "b/")
 			}
-		} else if strings.HasPrefix(trimmed, "-") {
-			content := trimmed[1:]
-			funcs := ParseFunctionNames(content)
-			for _, fn := range funcs {
-				lg.markTaskAsCompleted(fn)
+		} else if strings.HasPrefix(line, "+++ b/") {
+			currentFile = strings.TrimPrefix(line, "+++ b/")
+		} else if currentFile != "" && (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")) {
+			// Skip header lines
+			if strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") {
+				continue
+			}
+
+			// Process change line
+			changeType := "modified"
+			if strings.HasPrefix(line, "+") {
+				changeType = "added"
+			} else if strings.HasPrefix(line, "-") {
+				changeType = "removed"
+			}
+
+			// Extract function name if present
+			funcName := ""
+			if matches := FuncPattern.FindStringSubmatch(line[1:]); len(matches) >= 3 {
+				funcName = matches[2]
+			}
+
+			changes = append(changes, GitChange{
+				File:     currentFile,
+				Type:     changeType,
+				Content:  strings.TrimPrefix(line, "+- "),
+				FuncName: funcName,
+			})
+		}
+	}
+
+	return changes
+}
+
+// GitChange represents a single change in a git diff
+type GitChange struct {
+	File     string
+	Type     string // "added", "removed", "modified"
+	Content  string
+	FuncName string
+}
+
+// handleNewFile creates appropriate tasks for a new file
+func (lg *LittleGuy) handleNewFile(change GitChange) {
+	lg.tasks = append(lg.tasks, contextpkg.Task{
+		Description: fmt.Sprintf("New file: %s", change.File),
+		Files:       []string{change.File},
+		Notes:       []string{"Consider adding tests and documentation"},
+	})
+}
+
+// handleModifiedFile creates appropriate tasks for modified content
+func (lg *LittleGuy) handleModifiedFile(change GitChange) {
+	if change.FuncName != "" {
+		if change.Type == "added" {
+			// Function was added
+			lg.tasks = append(lg.tasks, contextpkg.Task{
+				Description: fmt.Sprintf("New function: %s", change.FuncName),
+				Files:       []string{change.File},
+				Functions:   []string{change.FuncName},
+				Notes:       []string{"Write unit tests", "Add documentation"},
+			})
+		} else if change.Type == "removed" {
+			// Function was removed - mark related tasks as completed
+			for i, task := range lg.tasks {
+				for _, fn := range task.Functions {
+					if fn == change.FuncName {
+						lg.completed = append(lg.completed, task)
+						lg.tasks = append(lg.tasks[:i], lg.tasks[i+1:]...)
+						break
+					}
+				}
 			}
 		}
 	}
-	messages := lg.BuildEphemeralContext("")
-	lg.logLLMContext(messages)
+}
+
+// handleDeletedFile handles file deletion
+func (lg *LittleGuy) handleDeletedFile(change GitChange) {
+	// Mark all tasks related to this file as completed
+	for i := 0; i < len(lg.tasks); i++ {
+		task := lg.tasks[i]
+		for _, file := range task.Files {
+			if file == change.File {
+				lg.completed = append(lg.completed, task)
+				lg.tasks = append(lg.tasks[:i], lg.tasks[i+1:]...)
+				i-- // Adjust index after removal
+				break
+			}
+		}
+	}
 }
 
 // markTaskAsCompleted moves tasks referencing a given function to the completed list.
@@ -290,6 +388,62 @@ func (lg *LittleGuy) hasTaskForFunction(fn string) bool {
 			if f == fn {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// Method to set query callback
+func (lg *LittleGuy) SetQueryCallback(callback func(string)) {
+	lg.queryCallback = callback
+}
+
+// Method to generate and send queries based on task changes
+func (lg *LittleGuy) CheckForQueries() {
+	lg.mutex.Lock()
+	defer lg.mutex.Unlock()
+
+	// 1. Check for new functions without tests
+	for _, task := range lg.tasks {
+		for _, fn := range task.Functions {
+			if !lg.hasTestForFunction(fn) && !lg.isQueryPending(fn) {
+				query := fmt.Sprintf("You added the function '%s'. Would you like me to generate test cases?", fn)
+				lg.pendingQueries = append(lg.pendingQueries, fn)
+				if lg.queryCallback != nil {
+					lg.queryCallback(query)
+				}
+			}
+		}
+	}
+}
+
+// Helper to check if a function has tests (simplified)
+func (lg *LittleGuy) hasTestForFunction(funcName string) bool {
+	for _, task := range lg.tasks {
+		if strings.Contains(task.Description, "test") &&
+			utils.StringSliceContains(task.Functions, funcName) {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper to check if query is already pending
+func (lg *LittleGuy) isQueryPending(identifier string) bool {
+	for _, p := range lg.pendingQueries {
+		if p == identifier {
+			return true
+		}
+	}
+	return false
+}
+
+// containsString returns true if the slice contains the value.
+// This replaces the missing utils.StringSliceContains function.
+func containsString(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
 		}
 	}
 	return false

@@ -16,3 +16,13 @@ func JoinLines(lines []string) string {
 func SanitizeBranchName(branch string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(branch, "/", "_"), " ", "-")
 }
+
+// StringSliceContains returns true if the slice contains the value.
+func StringSliceContains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}

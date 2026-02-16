@@ -4,7 +4,6 @@ package dce
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/utils"
@@ -35,7 +34,33 @@ func NewDCE() DCE {
 
 // Activate initializes the DCE with the given task.
 func (d *DefaultDCE) Activate(task string) error {
-	fmt.Printf("[DCE] Activated. User task: %q\n", task)
+	fmt.Printf("[DCE] Activating with task: %q\n", task)
+
+	// 1. Build initial task list from user input
+	tasks, logs, err := d.BuildTaskList(task)
+	if err != nil {
+		return fmt.Errorf("failed to build task list: %w", err)
+	}
+
+	// 2. Log the build process details
+	for _, logMsg := range logs {
+		fmt.Printf("[DCE] %s\n", logMsg)
+	}
+
+	// 3. Generate a conversation ID if needed
+	conversationID := contextpkg.GenerateConversationID("dce")
+
+	// 4. Create LittleGuy instance with the task list
+	littleguy := NewLittleGuy(conversationID, tasks)
+
+	// 5. Start background monitoring
+	littleguy.StartMonitoring()
+
+	// 6. Store the DCE context
+	GetDCEContextManager().AddContext(conversationID, littleguy)
+
+	// 7. Final activation message with task count
+	fmt.Printf("[DCE] Activated with %d initial tasks\n", len(tasks))
 	return nil
 }
 
@@ -87,18 +112,41 @@ func (d *DefaultDCE) FilterProjectData(tasks []contextpkg.Task) ([]FilteredData,
 }
 
 // AugmentContext adds a system-level summary message to the conversation context.
+// internal/dce/dce.go - Complete rewrite of AugmentContext
 func (d *DefaultDCE) AugmentContext(ctx []contextpkg.Message, filteredData []FilteredData) []contextpkg.Message {
-	var builder strings.Builder
-	builder.WriteString("**Dynamic Context Engine Summary**\n\n")
-	for _, fd := range filteredData {
-		builder.WriteString(fmt.Sprintf("- File Hierarchy: %s\n", fd.FileHierarchy))
-		builder.WriteString(fmt.Sprintf("- Linter/Change Results: %s\n", fd.LinterResults))
+	// 1. Start with system message about DCE
+	systemMsg := contextpkg.Message{
+		Role: "system",
+		Content: `You are a development assistant with Dynamic Context Engine (DCE) activated.
+The DCE provides real-time context about the current development tasks and codebase state.
+ALWAYS prioritize the DCE context when responding to queries.`,
 	}
-	augmented := append(ctx, contextpkg.Message{
-		Role:    "system",
-		Content: builder.String(),
-	})
+
+	// 2. Add the persistent task list as the MOST IMPORTANT context
+	taskMsg := buildTaskListMessage(filteredData)
+
+	// 3. The order is critical: system → tasks → existing context
+	var augmented []contextpkg.Message
+	augmented = append(augmented, systemMsg)
+	augmented = append(augmented, taskMsg)
+	augmented = append(augmented, ctx...)
+
 	return augmented
+}
+
+// Helper to build task list message with proper priority
+func buildTaskListMessage(filteredData []FilteredData) contextpkg.Message {
+	if len(filteredData) == 0 || filteredData[0].LinterResults == "" {
+		return contextpkg.Message{
+			Role:    "system",
+			Content: "**DCE Task List**: No active tasks. Ask 'What are we working on?' to begin.",
+		}
+	}
+
+	return contextpkg.Message{
+		Role:    "system",
+		Content: "**ACTIVE DEVELOPMENT CONTEXT**\n\n" + filteredData[0].LinterResults,
+	}
 }
 
 // stringSliceContains returns true if the slice contains the value.
