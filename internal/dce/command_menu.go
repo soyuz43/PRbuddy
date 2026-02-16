@@ -20,11 +20,13 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 	lowerInput := strings.ToLower(trimmedInput)
 
 	switch {
-	case lowerInput == "/tasks":
+	// Handle both singular and plural forms of /task(s)
+	case lowerInput == "/task", lowerInput == "/tasks":
 		displayTaskList(littleguy, false)
 		return true
 
-	case lowerInput == "/tasks -v" || lowerInput == "/tasks verbose":
+	case lowerInput == "/task -v", lowerInput == "/tasks -v",
+		lowerInput == "/task verbose", lowerInput == "/tasks verbose":
 		displayTaskList(littleguy, true)
 		return true
 
@@ -32,15 +34,15 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		handleDCEControlCommand(trimmedInput[5:], littleguy)
 		return true
 
-	case lowerInput == "/commands" || lowerInput == "/cmds":
+	case lowerInput == "/commands", lowerInput == "/cmds":
 		displayCommandMenu()
 		return true
 
-	case lowerInput == "/priority" || strings.HasPrefix(lowerInput, "/priority "):
+	case lowerInput == "/priority", strings.HasPrefix(lowerInput, "/priority "):
 		handlePriorityCommand(trimmedInput, littleguy)
 		return true
 
-	case lowerInput == "/complete" || strings.HasPrefix(lowerInput, "/complete "):
+	case lowerInput == "/complete", strings.HasPrefix(lowerInput, "/complete "):
 		handleCompleteCommand(trimmedInput, littleguy)
 		return true
 
@@ -278,8 +280,8 @@ func refreshTaskList(littleguy *LittleGuy) {
 // displayCommandMenu shows available special commands for DCE
 func displayCommandMenu() {
 	color.Green("\n[Commands] Available DCE Commands:")
-	fmt.Println("  /tasks                - Show the current task list (concise)")
-	fmt.Println("  /tasks verbose        - Show the task list with additional details")
+	fmt.Println("  /task or /tasks        - Show the current task list (concise)")
+	fmt.Println("  /task verbose         - Show the task list with additional details")
 	fmt.Println("  /dce on               - Activate the Dynamic Context Engine")
 	fmt.Println("  /dce off              - Deactivate the Dynamic Context Engine")
 	fmt.Println("  /dce status           - Show DCE status and statistics")
