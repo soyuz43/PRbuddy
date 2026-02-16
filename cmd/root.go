@@ -225,7 +225,7 @@ func handleDCECommand() {
 	}
 
 	// Interactive loop
-	color.Green("DCE is active. Type your queries or DCE commands (/tasks, /status, etc.)")
+	color.Green("DCE is active. Type your queries or DCE commands (/task, /status, etc.)")
 	for {
 		color.Green("You:")
 		fmt.Print("> ")
