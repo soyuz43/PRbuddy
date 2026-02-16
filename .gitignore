@@ -7,7 +7,6 @@
 cover.out
 test.out
 go.mod
-go.sum
 .DS_Store
 Thumbs.db
 .env
