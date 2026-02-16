@@ -4,7 +4,6 @@
 .idea/
 *.iml
 *.exe
-*_test.go
 cover.out
 test.out
 go.mod
