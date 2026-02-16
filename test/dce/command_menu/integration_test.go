@@ -92,22 +92,31 @@ func TestIntegration_TaskPrioritization(t *testing.T) {
 	dce.HandleDCECommandMenu("/add Task 2: Feature implementation", littleguy)
 	dce.HandleDCECommandMenu("/add Task 3: Documentation update", littleguy)
 
-	// Set priorities (FIX: Offset by 1 to account for initial task)
+	// Verify we have 4 tasks total
+	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/tasks", littleguy)
+	t.Logf("Task list: %s", mockOutput.String())
+
+	// Set priorities (offset by 1 to account for initial task)
 	dce.HandleDCECommandMenu("/priority 2 high", littleguy)
 	dce.HandleDCECommandMenu("/priority 3 medium", littleguy)
 	dce.HandleDCECommandMenu("/priority 4 low", littleguy)
 
 	// Check priorities
-	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	mockOutput = &MockOutputWriter{Buffer: &bytes.Buffer{}}
 	SetOutputForTests(mockOutput)
 	dce.HandleDCECommandMenu("/priority", littleguy)
 	output := mockOutput.String()
+
+	// Debug output
+	t.Logf("Priority output: %s", output)
 
 	// Verify priority labels are present
 	expectedPriorities := []string{"[High]", "[Medium]", "[Low]"}
 	for _, priority := range expectedPriorities {
 		if !strings.Contains(output, priority) {
-			t.Errorf("Expected priority '%s' not found in output", priority)
+			t.Errorf("Expected priority '%s' not found in output: %s", priority, output)
 		}
 	}
 }

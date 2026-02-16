@@ -56,7 +56,7 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		displayCommandMenu()
 		return true
 
-	case lowerInput == "/priority", strings.HasPrefix(lowerInput, "/priority "):
+	case strings.HasPrefix(lowerInput, "/priority"):
 		handlePriorityCommand(trimmedInput, littleguy)
 		return true
 
@@ -215,15 +215,15 @@ func displayDCEStatus(littleguy *LittleGuy) {
 }
 
 // handlePriorityCommand allows users to set task priorities
+// FIX: Corrected logic to properly distinguish between viewing and setting priorities
 func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	parts := strings.Fields(input)
 
-	if len(parts) < 2 {
-		color.New(color.FgRed).Fprintf(outputWriter, "[X] Usage: /priority <task-number> <low|medium|high>\n")
-		return
-	}
+	// parts[0] = "/priority"
+	// For viewing: len(parts) == 1 (just "/priority")
+	// For setting: len(parts) == 3 ("/priority" + taskNum + level)
 
-	if len(parts) == 2 {
+	if len(parts) == 1 {
 		// Display current priorities with formatted labels
 		color.New(color.FgCyan).Fprintf(outputWriter, "\n[Priority] Current task priorities:\n")
 		littleguy.mutex.RLock()
@@ -244,13 +244,15 @@ func handlePriorityCommand(input string, littleguy *LittleGuy) {
 		return
 	}
 
+	// Setting priority requires exactly 3 parts: /priority <num> <level>
+	if len(parts) != 3 {
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Usage: /priority <task-number> <low|medium|high>\n")
+		return
+	}
+
 	// Set priority for a specific task
 	taskNumStr := parts[1]
-	var priorityLevel string
-
-	if len(parts) > 2 {
-		priorityLevel = strings.ToLower(parts[2])
-	}
+	priorityLevel := strings.ToLower(parts[2])
 
 	// Convert task number
 	taskNum, err := strconv.Atoi(taskNumStr)
@@ -364,15 +366,15 @@ func refreshTaskList(littleguy *LittleGuy) {
 func displayCommandMenu() {
 	color.New(color.FgGreen).Fprintf(outputWriter, "\n[Commands] Available DCE Commands:\n")
 	fmt.Fprint(outputWriter, "  /task or /tasks        - Show the current task list (concise)\n")
-	fmt.Fprint(outputWriter, "  /task verbose         - Show the task list with additional details\n")
-	fmt.Fprint(outputWriter, "  /add <description>    - Add a new task to the task list\n")
-	fmt.Fprint(outputWriter, "  /dce on               - Activate the Dynamic Context Engine\n")
-	fmt.Fprint(outputWriter, "  /dce off              - Deactivate the Dynamic Context Engine\n")
-	fmt.Fprint(outputWriter, "  /dce status           - Show DCE status and statistics\n")
-	fmt.Fprint(outputWriter, "  /priority             - Show current task priorities\n")
-	fmt.Fprint(outputWriter, "  /priority <num> <level> - Set task priority (low/medium/high)\n")
-	fmt.Fprint(outputWriter, "  /complete <num>       - Mark a task as completed\n")
-	fmt.Fprint(outputWriter, "  /refresh              - Manually refresh task list from git\n")
-	fmt.Fprint(outputWriter, "  /status               - Show detailed DCE status\n")
-	fmt.Fprint(outputWriter, "  /commands, /cmds, /help - Show this command menu\n")
+	fmt.Fprint(outputWriter, "  /task verbose          - Show the task list with additional details\n")
+	fmt.Fprint(outputWriter, "  /add <description>     - Add a new task to the task list\n")
+	fmt.Fprint(outputWriter, "  /dce on                - Activate the Dynamic Context Engine\n")
+	fmt.Fprint(outputWriter, "  /dce off               - Deactivate the Dynamic Context Engine\n")
+	fmt.Fprint(outputWriter, "  /dce status            - Show DCE status and statistics\n")
+	fmt.Fprint(outputWriter, "  /priority              - Show current task priorities\n")
+	fmt.Fprint(outputWriter, "  /priority <num> <level>- Set task priority (low/medium/high)\n")
+	fmt.Fprint(outputWriter, "  /complete <num>        - Mark a task as completed\n")
+	fmt.Fprint(outputWriter, "  /refresh               - Manually refresh task list from git\n")
+	fmt.Fprint(outputWriter, "  /status                - Show detailed DCE status\n")
+	fmt.Fprint(outputWriter, "  /commands, /cmds, /help- Show this command menu\n")
 }
