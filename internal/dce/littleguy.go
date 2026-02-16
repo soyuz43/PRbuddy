@@ -1,3 +1,5 @@
+// internal/dce/littleguy.go
+
 package dce
 
 import (
@@ -24,13 +26,43 @@ type LittleGuy struct {
 
 // NewLittleGuy initializes a new LittleGuy instance.
 func NewLittleGuy(conversationID string, initialTasks []contextpkg.Task) *LittleGuy {
-	return &LittleGuy{
+	lg := &LittleGuy{
 		conversationID: conversationID,
 		tasks:          initialTasks,
 		completed:      []contextpkg.Task{},
 		codeSnapshots:  make(map[string]string),
 		pollInterval:   10 * time.Second,
 	}
+
+	// Add to context manager
+	GetDCEContextManager().AddContext(conversationID, lg)
+	return lg
+}
+
+// IsActive returns whether the DCE monitoring is active
+func (lg *LittleGuy) IsActive() bool {
+	lg.mutex.RLock()
+	defer lg.mutex.RUnlock()
+	return lg.monitorStarted
+}
+
+// StopMonitoring stops the background monitoring
+func (lg *LittleGuy) StopMonitoring() {
+	lg.mutex.Lock()
+	defer lg.mutex.Unlock()
+	lg.monitorStarted = false
+}
+
+// GetPollInterval returns the current polling interval
+func (lg *LittleGuy) GetPollInterval() time.Duration {
+	lg.mutex.RLock()
+	defer lg.mutex.RUnlock()
+	return lg.pollInterval
+}
+
+// GetConversationID returns the associated conversation ID
+func (lg *LittleGuy) GetConversationID() string {
+	return lg.conversationID
 }
 
 // StartMonitoring launches a background goroutine that periodically checks Git diffs.
@@ -45,6 +77,14 @@ func (lg *LittleGuy) StartMonitoring() {
 
 	go func() {
 		for {
+			lg.mutex.RLock()
+			monitoring := lg.monitorStarted
+			lg.mutex.RUnlock()
+
+			if !monitoring {
+				return
+			}
+
 			time.Sleep(lg.pollInterval)
 			diffOutput, err := utils.ExecGit("diff", "--unified=0")
 			if err != nil {
@@ -202,7 +242,7 @@ func (lg *LittleGuy) AddCodeSnippet(filePath, content string) {
 	lg.codeSnapshots[filePath] = content
 }
 
-// UpdateTaskList appends new tasks if they’re not already represented.
+// UpdateTaskList appends new tasks if they're not already represented.
 func (lg *LittleGuy) UpdateTaskList(newTasks []contextpkg.Task) {
 	lg.mutex.Lock()
 	defer lg.mutex.Unlock()
