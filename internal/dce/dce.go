@@ -61,6 +61,7 @@ func (d *DefaultDCE) Activate(task string) error {
 
 	// 7. Final activation message with task count
 	fmt.Printf("[DCE] Activated with %d initial tasks\n", len(tasks))
+	fmt.Printf("[DCE] Dynamic Context Engine activated. Use '/tasks' to view current tasks.\n")
 	return nil
 }
 

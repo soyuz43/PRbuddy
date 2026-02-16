@@ -40,8 +40,11 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		displayTaskList(littleguy, true)
 		return true
 
-	// Handle /add command to add new tasks
-	case strings.HasPrefix(lowerInput, "/add "):
+	// Handle /add command to add new tasks (with or without space after /add)
+	case strings.HasPrefix(lowerInput, "/add") && len(trimmedInput) > 4:
+		handleAddCommand(trimmedInput, littleguy)
+		return true
+	case lowerInput == "/add":
 		handleAddCommand(trimmedInput, littleguy)
 		return true
 
@@ -77,7 +80,11 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 // handleAddCommand processes /add commands to add new tasks to the task list
 func handleAddCommand(input string, littleguy *LittleGuy) {
 	// Extract the task description after "/add"
-	taskDescription := strings.TrimSpace(input[5:])
+	var taskDescription string
+	if len(input) > 4 {
+		taskDescription = strings.TrimSpace(input[4:])
+	}
+
 	if taskDescription == "" {
 		color.New(color.FgRed).Fprintf(outputWriter, "[X] Please provide a task description after /add\n")
 		return
@@ -173,7 +180,6 @@ func handleDCEControlCommand(command string, littleguy *LittleGuy) {
 		littleguy.mutex.Unlock()
 
 		if wasActive {
-			// Instead of StopMonitoring (which doesn't exist yet), we'll set a flag
 			littleguy.mutex.Lock()
 			littleguy.monitorStarted = false
 			littleguy.mutex.Unlock()
@@ -218,22 +224,22 @@ func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	}
 
 	if len(parts) == 2 {
-		// Display current priorities
+		// Display current priorities with formatted labels
 		color.New(color.FgCyan).Fprintf(outputWriter, "\n[Priority] Current task priorities:\n")
 		littleguy.mutex.RLock()
 		defer littleguy.mutex.RUnlock()
 
 		for i, task := range littleguy.tasks {
-			priority := "Low"
+			priorityLabel := "[Low]"
 			for _, note := range task.Notes {
 				if strings.Contains(strings.ToLower(note), "high priority") {
-					priority = "High"
+					priorityLabel = "[High]"
 					break
 				} else if strings.Contains(strings.ToLower(note), "medium priority") {
-					priority = "Medium"
+					priorityLabel = "[Medium]"
 				}
 			}
-			fmt.Fprintf(outputWriter, "  %d) [%s] %s\n", i+1, priority, task.Description)
+			fmt.Fprintf(outputWriter, "  %d) %s %s\n", i+1, priorityLabel, task.Description)
 		}
 		return
 	}
@@ -291,7 +297,7 @@ func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	task.Notes = newNotes
 }
 
-// handleCompleteCommand marks tasks as completed
+// handleCompleteCommand marks tasks as completed and shows remaining tasks
 func handleCompleteCommand(input string, littleguy *LittleGuy) {
 	parts := strings.Fields(input)
 
@@ -309,17 +315,35 @@ func handleCompleteCommand(input string, littleguy *LittleGuy) {
 
 	// Mark task as completed
 	littleguy.mutex.Lock()
-	defer littleguy.mutex.Unlock()
 
 	if taskNum > len(littleguy.tasks) {
+		littleguy.mutex.Unlock()
 		color.New(color.FgRed).Fprintf(outputWriter, "[X] Task number out of range\n")
 		return
 	}
 
 	task := littleguy.tasks[taskNum-1]
+
+	// Remove the task from tasks and add to completed
 	littleguy.tasks = append(littleguy.tasks[:taskNum-1], littleguy.tasks[taskNum:]...)
+	littleguy.completed = append(littleguy.completed, task)
+
+	taskCount := len(littleguy.tasks)
+	littleguy.mutex.Unlock()
 
 	color.New(color.FgGreen).Fprintf(outputWriter, "[Complete] Task %d marked as completed: %s\n", taskNum, task.Description)
+
+	// Show remaining tasks
+	if taskCount > 0 {
+		fmt.Fprintf(outputWriter, "\nRemaining tasks:\n")
+		littleguy.mutex.RLock()
+		for i, remainingTask := range littleguy.tasks {
+			fmt.Fprintf(outputWriter, "  %d) %s\n", i+1, remainingTask.Description)
+		}
+		littleguy.mutex.RUnlock()
+	} else {
+		fmt.Fprintf(outputWriter, "\nNo remaining tasks.\n")
+	}
 }
 
 // refreshTaskList manually triggers a task list refresh

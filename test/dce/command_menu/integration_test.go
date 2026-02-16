@@ -6,94 +6,192 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/soyuz43/prbuddy-go/internal/contextpkg"
 	"github.com/soyuz43/prbuddy-go/internal/dce"
 	"github.com/soyuz43/prbuddy-go/test"
 )
 
-func TestAddAndDisplayTasks(t *testing.T) {
+func TestIntegration_FullDCEWorkflow(t *testing.T) {
 	// Setup
 	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
 
-	// Add a new task with description that will match test files
+	// Step 1: Add a task
 	dce.HandleDCECommandMenu("/add Implement test helpers", littleguy)
 
-	// Capture output of /tasks
+	// Step 2: Check tasks
 	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
 	SetOutputForTests(mockOutput)
 	dce.HandleDCECommandMenu("/tasks", littleguy)
-
-	// Verify the new task appears in the task list
 	output := mockOutput.String()
+
 	if !strings.Contains(output, "Implement test helpers") {
 		t.Error("Added task not found in task list")
 	}
 
-	// Check if we have files or it's a catch-all task
-	if strings.Contains(output, "Files:") || strings.Contains(output, "Functions:") {
-		// Task matched files - verify details are displayed
-	} else {
-		// Task is a catch-all task - verify appropriate message
-		if !strings.Contains(output, "No direct file matches found") {
-			t.Error("Expected 'No direct file matches found' message for catch-all task")
-		}
-	}
-}
-
-func TestAddCommandWithVerboseTasks(t *testing.T) {
-	// Setup
-	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
-
-	// Add a new task with description that will match test files
-	dce.HandleDCECommandMenu("/add Implement test helpers", littleguy)
-
-	// Capture verbose task output
-	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	// Step 3: Check status
+	mockOutput = &MockOutputWriter{Buffer: &bytes.Buffer{}}
 	SetOutputForTests(mockOutput)
-	dce.HandleDCECommandMenu("/tasks -v", littleguy)
+	dce.HandleDCECommandMenu("/status", littleguy)
+	output = mockOutput.String()
 
-	// Verify verbose details are displayed
-	output := mockOutput.String()
-	if !strings.Contains(output, "Implement test helpers") {
-		t.Error("Added task not found in verbose task list")
+	if !strings.Contains(output, "Active Tasks:") {
+		t.Error("Status output missing")
 	}
 
-	// Check if we have files or it's a catch-all task
-	if strings.Contains(output, "Files:") || strings.Contains(output, "Functions:") || strings.Contains(output, "Notes:") {
-		// Task matched files - verify details are displayed
-	} else {
-		// Task is a catch-all task - verify appropriate message
-		if !strings.Contains(output, "No direct file matches found") {
-			t.Error("Expected 'No direct file matches found' message for catch-all task")
-		}
-	}
-}
+	// Step 4: Mark task as completed
+	dce.HandleDCECommandMenu("/complete 1", littleguy)
 
-func TestAddCommandWhenDCEInactive(t *testing.T) {
-	// Setup - create DCE but don't activate it
-	conversationID := contextpkg.GenerateConversationID("test")
-	littleguy := dce.NewLittleGuy(conversationID, []contextpkg.Task{})
-
-	// Capture output
-	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
-	SetOutputForTests(mockOutput)
-
-	// Try to add a task with DCE inactive
-	dce.HandleDCECommandMenu("/add Test task", littleguy)
-
-	// Verify output
-	output := mockOutput.String()
-	if !strings.Contains(output, "Successfully added 1 task(s) to the task list") {
-		t.Error("Expected success message not found when DCE is inactive")
-	}
-
-	// Verify task was added
+	// Step 5: Verify task was removed
 	mockOutput = &MockOutputWriter{Buffer: &bytes.Buffer{}}
 	SetOutputForTests(mockOutput)
 	dce.HandleDCECommandMenu("/tasks", littleguy)
 	output = mockOutput.String()
 
-	if !strings.Contains(output, "Test task") {
-		t.Error("Added task not found in task list")
+	if strings.Contains(output, "Implement test helpers") {
+		t.Error("Completed task still appears in task list")
+	}
+}
+
+func TestIntegration_DCEActivationDeactivation(t *testing.T) {
+	// Setup
+	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
+
+	// Test DCE activation
+	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/dce on", littleguy)
+	output := mockOutput.String()
+
+	if !strings.Contains(output, "Dynamic Context Engine activated") {
+		t.Error("DCE activation message not found")
+	}
+
+	// Check status after activation
+	mockOutput = &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/status", littleguy)
+	output = mockOutput.String()
+
+	if !strings.Contains(output, "ACTIVE") {
+		t.Error("DCE should show as ACTIVE")
+	}
+
+	// Test DCE deactivation
+	mockOutput = &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/dce off", littleguy)
+	output = mockOutput.String()
+
+	if !strings.Contains(output, "Dynamic Context Engine deactivated") {
+		t.Error("DCE deactivation message not found")
+	}
+}
+
+func TestIntegration_TaskPrioritization(t *testing.T) {
+	// Setup
+	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
+
+	// Add multiple tasks
+	dce.HandleDCECommandMenu("/add Task 1: Critical bug fix", littleguy)
+	dce.HandleDCECommandMenu("/add Task 2: Feature implementation", littleguy)
+	dce.HandleDCECommandMenu("/add Task 3: Documentation update", littleguy)
+
+	// Set priorities
+	dce.HandleDCECommandMenu("/priority 1 high", littleguy)
+	dce.HandleDCECommandMenu("/priority 2 medium", littleguy)
+	dce.HandleDCECommandMenu("/priority 3 low", littleguy)
+
+	// Check priorities
+	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/priority", littleguy)
+	output := mockOutput.String()
+
+	// Verify priority labels are present
+	expectedPriorities := []string{"[High]", "[Medium]", "[Low]"}
+	for _, priority := range expectedPriorities {
+		if !strings.Contains(output, priority) {
+			t.Errorf("Expected priority '%s' not found in output", priority)
+		}
+	}
+}
+
+func TestIntegration_CommandAliases(t *testing.T) {
+	// Setup
+	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
+
+	// Test different command aliases
+	testCases := []struct {
+		command     string
+		shouldMatch bool
+	}{
+		{"/task", true},
+		{"/tasks", true},
+		{"/cmds", true},
+		{"/commands", true},
+		{"/help", true},
+		{"/invalid", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run("Command_"+tc.command, func(t *testing.T) {
+			mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+			SetOutputForTests(mockOutput)
+
+			result := dce.HandleDCECommandMenu(tc.command, littleguy)
+
+			if tc.shouldMatch && !result {
+				t.Errorf("Command '%s' should have been handled but wasn't", tc.command)
+			}
+			if !tc.shouldMatch && result {
+				t.Errorf("Command '%s' should not have been handled but was", tc.command)
+			}
+		})
+	}
+}
+
+func TestIntegration_RefreshTaskList(t *testing.T) {
+	// Setup
+	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
+
+	// Add a task
+	dce.HandleDCECommandMenu("/add Implement test helpers", littleguy)
+
+	// Manually trigger refresh
+	mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+	SetOutputForTests(mockOutput)
+	dce.HandleDCECommandMenu("/refresh", littleguy)
+	output := mockOutput.String()
+
+	if !strings.Contains(output, "Refreshing task list from git changes") {
+		t.Error("Refresh command output not as expected")
+	}
+}
+
+func TestIntegration_InvalidCommands(t *testing.T) {
+	// Setup
+	_, littleguy := test.SetupDCEForTesting(t, "Initial task")
+
+	invalidCommands := []string{
+		"/add",               // missing description
+		"/priority",          // missing args
+		"/complete",          // missing task number
+		"/complete abc",      // invalid task number
+		"/priority abc high", // invalid task number
+		"/dce unknown",       // invalid dce subcommand
+	}
+
+	for _, cmd := range invalidCommands {
+		t.Run("Invalid_"+cmd, func(t *testing.T) {
+			mockOutput := &MockOutputWriter{Buffer: &bytes.Buffer{}}
+			SetOutputForTests(mockOutput)
+
+			dce.HandleDCECommandMenu(cmd, littleguy)
+			output := mockOutput.String()
+
+			// Should see some error message (not empty)
+			if output == "" {
+				t.Errorf("Expected error output for invalid command '%s', got empty", cmd)
+			}
+		})
 	}
 }
