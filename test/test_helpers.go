@@ -111,11 +111,9 @@ func CleanupTestRepository(t *testing.T, repoPath string) {
 }
 
 // SetupDCEForTesting initializes a DCE instance for testing
+// SetupDCEForTesting initializes a DCE instance for testing
 func SetupDCEForTesting(t *testing.T, initialTask string) (string, *dce.LittleGuy) {
 	t.Helper()
-
-	// Create a conversation ID
-	conversationID := contextpkg.GenerateConversationID("test")
 
 	// Initialize DCE
 	dceInstance := dce.NewDCE()
@@ -123,9 +121,19 @@ func SetupDCEForTesting(t *testing.T, initialTask string) (string, *dce.LittleGu
 		t.Fatalf("Failed to activate DCE: %v", err)
 	}
 
-	// Get the LittleGuy instance
-	littleguy, exists := dce.GetDCEContextManager().GetContext(conversationID)
-	if !exists {
+	// Get the conversation ID from the DCE context
+	var conversationID string
+	var littleguy *dce.LittleGuy
+
+	// Use ForEachContext to find the first context
+	found := false
+	dce.GetDCEContextManager().ForEachContext(func(cid string, ctx *dce.LittleGuy) {
+		conversationID = cid
+		littleguy = ctx
+		found = true
+	})
+
+	if !found {
 		t.Fatal("Failed to get LittleGuy instance after DCE activation")
 	}
 
