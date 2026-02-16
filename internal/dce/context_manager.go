@@ -49,3 +49,21 @@ func (cm *DCEContextManager) RemoveContext(conversationID string) {
 	defer cm.mutex.Unlock()
 	delete(cm.contexts, conversationID)
 }
+
+// ForEachContext iterates through all contexts and calls the provided function for each one
+func (cm *DCEContextManager) ForEachContext(f func(string, *LittleGuy)) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	// Make a copy of the contexts to iterate over
+	// This prevents potential issues if the map is modified during iteration
+	contextsCopy := make(map[string]*LittleGuy, len(cm.contexts))
+	for k, v := range cm.contexts {
+		contextsCopy[k] = v
+	}
+
+	// Iterate through the copied map
+	for cid, context := range contextsCopy {
+		f(cid, context)
+	}
+}
