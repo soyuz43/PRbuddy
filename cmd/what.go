@@ -18,6 +18,9 @@ and provides a natural language summary using the LLM.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("[PRBuddy-Go] Running 'what' command...")
 
+		// Get the dce flag value
+		useDCE, _ := cmd.Flags().GetBool("dce")
+
 		// Check if there are any commits in the repository
 		commitCount, err := utils.ExecGit("rev-list", "--count", "HEAD")
 		if err != nil {
@@ -30,7 +33,15 @@ and provides a natural language summary using the LLM.`,
 		}
 
 		// Generate and display the summary
-		summary, err := llm.GenerateWhatSummary()
+		var summary string
+
+		if useDCE {
+			fmt.Println("[PRBuddy-Go] Using Dynamic Context Engine for enhanced context awareness")
+			summary, err = llm.GenerateWhatSummaryWithDCEContext()
+		} else {
+			summary, err = llm.GenerateWhatSummary()
+		}
+
 		if err != nil {
 			if err.Error() == "no changes detected since the last commit" {
 				fmt.Println("[PRBuddy-Go] No changes detected.")
@@ -46,5 +57,11 @@ and provides a natural language summary using the LLM.`,
 }
 
 func init() {
+	// Add DCE flag to enable context-aware summaries
+	whatCmd.Flags().Bool("dce", false, "Use Dynamic Context Engine for enhanced context awareness")
+
+	// Add alias for the command
+	whatCmd.Aliases = []string{"w", "changes"}
+
 	rootCmd.AddCommand(whatCmd)
 }

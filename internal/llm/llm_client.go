@@ -404,6 +404,90 @@ func GenerateDraftPR(commitMessage, diffs string) (string, error) {
 	return response, nil
 }
 
+// GenerateWhatSummaryWithDCEContext generates a summary of git diffs using the LLM with integrated DCE context
+// This provides a more contextualized summary by leveraging the Dynamic Context Engine's understanding of tasks
+func GenerateWhatSummaryWithDCEContext() (string, error) {
+	// 1. Get diffs (same as the original function)
+	diffs, err := utils.GetDiffs(utils.DiffAllLocalChanges)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diffs: %w", err)
+	}
+	if diffs == "" {
+		return "No changes detected since the last commit.", nil
+	}
+
+	// 2. Create a conversation ID and get or create conversation
+	conversationID := contextpkg.GenerateConversationID("what-dce")
+	conv, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
+	if !exists {
+		conv = contextpkg.ConversationManagerInstance.StartConversation(conversationID, "", true)
+	}
+
+	// 3. Create the prompt for the LLM (same as original)
+	prompt := fmt.Sprintf(`
+These are the git diffs for the repository:
+
+%s
+
+---
+!TASK::
+1. Provide a meticulous natural language summary of each of the changes. Do so by file. Describe each change made in full.
+2. List and separate changes for each file changed using numbered points and markdown formatting.
+3. Only describe the changes explicitly present in the diffs. Do not infer, speculate, or invent additional content.
+4. Focus on helping the developer reorient themselves and understand where they left off.
+`, diffs)
+
+	// 4. Add user message to conversation
+	conv.AddMessage("user", prompt)
+
+	// 5. Initialize DCE
+	dceInstance := dce.NewDCE()
+
+	// 6. Build task list using a descriptive input that captures our intent
+	taskList, buildLogs, err := dceInstance.BuildTaskList("Summarizing recent changes and providing context-aware summary of current development progress")
+	if err != nil {
+		return "", fmt.Errorf("failed to build task list: %w", err)
+	}
+
+	// 7. Add build logs to conversation and console
+	for _, logMsg := range buildLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+		fmt.Println("[DCE]", logMsg)
+	}
+
+	// 8. Filter project data based on the task list
+	filteredData, filterLogs, err := dceInstance.FilterProjectData(taskList)
+	if err != nil {
+		return "", fmt.Errorf("failed to filter project data: %w", err)
+	}
+	for _, logMsg := range filterLogs {
+		conv.AddMessage("system", "[DCE] "+logMsg)
+		fmt.Println("[DCE]", logMsg)
+	}
+
+	// 9. Augment conversation with filtered data (this is the key DCE integration)
+	augmentedContext := dceInstance.AugmentContext(conv.BuildContext(), filteredData)
+	conv.SetMessages(augmentedContext)
+
+	// 10. Save context for debugging (optional but helpful)
+	if err := utils.SaveContextToFile(conv.ID, augmentedContext); err != nil {
+		logrus.Errorf("Failed to save context to file: %v", err)
+	}
+	if err := utils.SaveConcatenatedContextToFile(conv.ID, augmentedContext); err != nil {
+		logrus.Errorf("Failed to save concatenated context to file: %v", err)
+	}
+
+	// 11. Get response from LLM with the augmented context
+	response, err := llmClient.GetChatResponse(augmentedContext)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from LLM: %w", err)
+	}
+
+	// 12. Store assistant response in conversation
+	conv.AddMessage("assistant", response)
+	return response, nil
+}
+
 // GenerateWhatSummary generates a summary of git diffs using the LLM (stateless).
 func GenerateWhatSummary() (string, error) {
 	diffs, err := utils.GetDiffs(utils.DiffAllLocalChanges)
