@@ -4,11 +4,21 @@ package dce
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
 )
+
+// outputWriter is used for all command output to enable testability
+var outputWriter io.Writer = os.Stdout
+
+// SetOutput allows setting a custom output writer for testing
+func SetOutput(w io.Writer) {
+	outputWriter = w
+}
 
 // HandleDCECommandMenu checks if the user input is a recognized command
 // and executes the appropriate function.
@@ -30,8 +40,11 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		displayTaskList(littleguy, true)
 		return true
 
-	// Handle /add command to add new tasks
-	case strings.HasPrefix(lowerInput, "/add "):
+	// Handle /add command to add new tasks (with or without space after /add)
+	case strings.HasPrefix(lowerInput, "/add") && len(trimmedInput) > 4:
+		handleAddCommand(trimmedInput, littleguy)
+		return true
+	case lowerInput == "/add":
 		handleAddCommand(trimmedInput, littleguy)
 		return true
 
@@ -43,7 +56,7 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		displayCommandMenu()
 		return true
 
-	case lowerInput == "/priority", strings.HasPrefix(lowerInput, "/priority "):
+	case strings.HasPrefix(lowerInput, "/priority"):
 		handlePriorityCommand(trimmedInput, littleguy)
 		return true
 
@@ -67,43 +80,47 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 // handleAddCommand processes /add commands to add new tasks to the task list
 func handleAddCommand(input string, littleguy *LittleGuy) {
 	// Extract the task description after "/add"
-	taskDescription := strings.TrimSpace(input[5:])
+	var taskDescription string
+	if len(input) > 4 {
+		taskDescription = strings.TrimSpace(input[4:])
+	}
+
 	if taskDescription == "" {
-		color.Red("[X] Please provide a task description after /add")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Please provide a task description after /add\n")
 		return
 	}
 
-	color.Cyan("\n[Add] Building task from description: %q", taskDescription)
+	color.New(color.FgCyan).Fprintf(outputWriter, "\n[Add] Building task from description: %q\n", taskDescription)
 
 	// Build task list from the description
 	tasks, logs, err := BuildTaskList(taskDescription)
 	if err != nil {
-		color.Red("[X] Failed to build task list: %v", err)
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Failed to build task list: %v\n", err)
 		return
 	}
 
 	// Log the build process
 	for _, logMsg := range logs {
-		fmt.Printf("[DCE] %s\n", logMsg)
+		fmt.Fprintf(outputWriter, "[DCE] %s\n", logMsg)
 	}
 
 	// Add the new tasks to the current task list
 	littleguy.UpdateTaskList(tasks)
 
 	// Provide feedback
-	color.Green("\n[Add] Successfully added %d task(s) to the task list", len(tasks))
+	color.New(color.FgGreen).Fprintf(outputWriter, "\n[Add] Successfully added %d task(s) to the task list\n", len(tasks))
 
 	// Display the added tasks
 	for i, task := range tasks {
-		fmt.Printf("  %d) %s\n", i+1, task.Description)
+		fmt.Fprintf(outputWriter, "  %d) %s\n", i+1, task.Description)
 		if len(task.Files) > 0 {
-			fmt.Printf("     Files: %s\n", strings.Join(task.Files, ", "))
+			fmt.Fprintf(outputWriter, "     Files: %s\n", strings.Join(task.Files, ", "))
 		}
 		if len(task.Functions) > 0 {
-			fmt.Printf("     Functions: %s\n", strings.Join(task.Functions, ", "))
+			fmt.Fprintf(outputWriter, "     Functions: %s\n", strings.Join(task.Functions, ", "))
 		}
 		if len(task.Notes) > 0 {
-			fmt.Printf("     Notes: %s\n", strings.Join(task.Notes, "; "))
+			fmt.Fprintf(outputWriter, "     Notes: %s\n", strings.Join(task.Notes, "; "))
 		}
 	}
 }
@@ -111,29 +128,29 @@ func handleAddCommand(input string, littleguy *LittleGuy) {
 // displayTaskList prints the current task list.
 // If verbose=true, it includes additional details like files, functions, notes, etc.
 func displayTaskList(littleguy *LittleGuy, verbose bool) {
-	color.Cyan("\n[Task List] Current Tasks:")
+	color.New(color.FgCyan).Fprintf(outputWriter, "\n[Task List] Current Tasks:\n")
 
 	littleguy.mutex.RLock()
 	tasks := littleguy.tasks
 	littleguy.mutex.RUnlock()
 
 	if len(tasks) == 0 {
-		color.Yellow("  [!] No active tasks")
+		color.New(color.FgYellow).Fprintf(outputWriter, "  [!] No active tasks\n")
 		return
 	}
 
 	for i, task := range tasks {
-		fmt.Printf("  %d) %s\n", i+1, task.Description)
+		fmt.Fprintf(outputWriter, "  %d) %s\n", i+1, task.Description)
 
 		if verbose {
 			if len(task.Files) > 0 {
-				fmt.Printf("     Files: %s\n", strings.Join(task.Files, ", "))
+				fmt.Fprintf(outputWriter, "     Files: %s\n", strings.Join(task.Files, ", "))
 			}
 			if len(task.Functions) > 0 {
-				fmt.Printf("     Functions: %s\n", strings.Join(task.Functions, ", "))
+				fmt.Fprintf(outputWriter, "     Functions: %s\n", strings.Join(task.Functions, ", "))
 			}
 			if len(task.Notes) > 0 {
-				fmt.Printf("     Notes: %s\n", strings.Join(task.Notes, "; "))
+				fmt.Fprintf(outputWriter, "     Notes: %s\n", strings.Join(task.Notes, "; "))
 			}
 		}
 	}
@@ -151,10 +168,10 @@ func handleDCEControlCommand(command string, littleguy *LittleGuy) {
 
 		if !wasActive {
 			littleguy.StartMonitoring()
-			color.Green("[DCE] Dynamic Context Engine activated")
-			color.Green("[DCE] Use '/tasks' to view current development tasks")
+			color.New(color.FgGreen).Fprintf(outputWriter, "[DCE] Dynamic Context Engine activated\n")
+			color.New(color.FgGreen).Fprintf(outputWriter, "[DCE] Use '/tasks' to view current development tasks\n")
 		} else {
-			color.Yellow("[DCE] DCE is already active")
+			color.New(color.FgYellow).Fprintf(outputWriter, "[DCE] DCE is already active\n")
 		}
 
 	case "off", "deactivate", "stop":
@@ -163,26 +180,25 @@ func handleDCEControlCommand(command string, littleguy *LittleGuy) {
 		littleguy.mutex.Unlock()
 
 		if wasActive {
-			// Instead of StopMonitoring (which doesn't exist yet), we'll set a flag
 			littleguy.mutex.Lock()
 			littleguy.monitorStarted = false
 			littleguy.mutex.Unlock()
-			color.Green("[DCE] Dynamic Context Engine deactivated")
+			color.New(color.FgGreen).Fprintf(outputWriter, "[DCE] Dynamic Context Engine deactivated\n")
 		} else {
-			color.Yellow("[DCE] DCE is already inactive")
+			color.New(color.FgYellow).Fprintf(outputWriter, "[DCE] DCE is already inactive\n")
 		}
 
 	case "status", "info":
 		displayDCEStatus(littleguy)
 
 	default:
-		color.Red("[X] Unknown DCE command. Use '/dce on', '/dce off', or '/dce status'")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Unknown DCE command. Use '/dce on', '/dce off', or '/dce status'\n")
 	}
 }
 
 // displayDCEStatus shows detailed DCE status information
 func displayDCEStatus(littleguy *LittleGuy) {
-	color.Cyan("\n[DCE Status] Engine Status:")
+	color.New(color.FgCyan).Fprintf(outputWriter, "\n[DCE Status] Engine Status:\n")
 
 	littleguy.mutex.RLock()
 	status := "ACTIVE"
@@ -192,54 +208,56 @@ func displayDCEStatus(littleguy *LittleGuy) {
 	taskCount := len(littleguy.tasks)
 	littleguy.mutex.RUnlock()
 
-	fmt.Printf("  Status: %s\n", status)
-	fmt.Printf("  Active Tasks: %d\n", taskCount)
-	fmt.Printf("  Monitoring Interval: %v\n", littleguy.pollInterval)
-	fmt.Println("  Features: Dynamic task tracking, Git change monitoring")
+	fmt.Fprintf(outputWriter, "  Status: %s\n", status)
+	fmt.Fprintf(outputWriter, "  Active Tasks: %d\n", taskCount)
+	fmt.Fprintf(outputWriter, "  Monitoring Interval: %v\n", littleguy.pollInterval)
+	fmt.Fprintf(outputWriter, "  Features: Dynamic task tracking, Git change monitoring\n")
 }
 
 // handlePriorityCommand allows users to set task priorities
+// FIX: Corrected logic to properly distinguish between viewing and setting priorities
 func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	parts := strings.Fields(input)
 
-	if len(parts) < 2 {
-		color.Red("[X] Usage: /priority <task-number> <low|medium|high>")
-		return
-	}
+	// parts[0] = "/priority"
+	// For viewing: len(parts) == 1 (just "/priority")
+	// For setting: len(parts) == 3 ("/priority" + taskNum + level)
 
-	if len(parts) == 2 {
-		// Display current priorities
-		color.Cyan("\n[Priority] Current task priorities:")
+	if len(parts) == 1 {
+		// Display current priorities with formatted labels
+		color.New(color.FgCyan).Fprintf(outputWriter, "\n[Priority] Current task priorities:\n")
 		littleguy.mutex.RLock()
 		defer littleguy.mutex.RUnlock()
 
 		for i, task := range littleguy.tasks {
-			priority := "Low"
+			priorityLabel := "[Low]"
 			for _, note := range task.Notes {
 				if strings.Contains(strings.ToLower(note), "high priority") {
-					priority = "High"
+					priorityLabel = "[High]"
 					break
 				} else if strings.Contains(strings.ToLower(note), "medium priority") {
-					priority = "Medium"
+					priorityLabel = "[Medium]"
 				}
 			}
-			fmt.Printf("  %d) [%s] %s\n", i+1, priority, task.Description)
+			fmt.Fprintf(outputWriter, "  %d) %s %s\n", i+1, priorityLabel, task.Description)
 		}
+		return
+	}
+
+	// Setting priority requires exactly 3 parts: /priority <num> <level>
+	if len(parts) != 3 {
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Usage: /priority <task-number> <low|medium|high>\n")
 		return
 	}
 
 	// Set priority for a specific task
 	taskNumStr := parts[1]
-	var priorityLevel string
-
-	if len(parts) > 2 {
-		priorityLevel = strings.ToLower(parts[2])
-	}
+	priorityLevel := strings.ToLower(parts[2])
 
 	// Convert task number
 	taskNum, err := strconv.Atoi(taskNumStr)
 	if err != nil || taskNum < 1 {
-		color.Red("[X] Invalid task number")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Invalid task number\n")
 		return
 	}
 
@@ -248,7 +266,7 @@ func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	defer littleguy.mutex.Unlock()
 
 	if taskNum > len(littleguy.tasks) {
-		color.Red("[X] Task number out of range")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Task number out of range\n")
 		return
 	}
 
@@ -266,79 +284,97 @@ func handlePriorityCommand(input string, littleguy *LittleGuy) {
 	switch priorityLevel {
 	case "high", "urgent", "critical":
 		newNotes = append(newNotes, "High Priority: Critical task requiring immediate attention")
-		color.Green("[Priority] Task %d set to HIGH priority", taskNum)
+		color.New(color.FgGreen).Fprintf(outputWriter, "[Priority] Task %d set to HIGH priority\n", taskNum)
 	case "medium", "normal":
 		newNotes = append(newNotes, "Medium Priority: Important but not time-critical")
-		color.Green("[Priority] Task %d set to MEDIUM priority", taskNum)
+		color.New(color.FgGreen).Fprintf(outputWriter, "[Priority] Task %d set to MEDIUM priority\n", taskNum)
 	case "low", "optional":
 		newNotes = append(newNotes, "Low Priority: Can be addressed later")
-		color.Green("[Priority] Task %d set to LOW priority", taskNum)
+		color.New(color.FgGreen).Fprintf(outputWriter, "[Priority] Task %d set to LOW priority\n", taskNum)
 	default:
-		color.Red("[X] Invalid priority level. Use: low, medium, or high")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Invalid priority level. Use: low, medium, or high\n")
 		return
 	}
 
 	task.Notes = newNotes
 }
 
-// handleCompleteCommand marks tasks as completed
+// handleCompleteCommand marks tasks as completed and shows remaining tasks
 func handleCompleteCommand(input string, littleguy *LittleGuy) {
 	parts := strings.Fields(input)
 
 	if len(parts) < 2 {
-		color.Red("[X] Usage: /complete <task-number>")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Usage: /complete <task-number>\n")
 		return
 	}
 
 	// Convert task number
 	taskNum, err := strconv.Atoi(parts[1])
 	if err != nil || taskNum < 1 {
-		color.Red("[X] Invalid task number")
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Invalid task number\n")
 		return
 	}
 
 	// Mark task as completed
 	littleguy.mutex.Lock()
-	defer littleguy.mutex.Unlock()
 
 	if taskNum > len(littleguy.tasks) {
-		color.Red("[X] Task number out of range")
+		littleguy.mutex.Unlock()
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Task number out of range\n")
 		return
 	}
 
 	task := littleguy.tasks[taskNum-1]
-	littleguy.tasks = append(littleguy.tasks[:taskNum-1], littleguy.tasks[taskNum:]...)
 
-	color.Green("[Complete] Task %d marked as completed: %s", taskNum, task.Description)
+	// Remove the task from tasks and add to completed
+	littleguy.tasks = append(littleguy.tasks[:taskNum-1], littleguy.tasks[taskNum:]...)
+	littleguy.completed = append(littleguy.completed, task)
+
+	taskCount := len(littleguy.tasks)
+	littleguy.mutex.Unlock()
+
+	color.New(color.FgGreen).Fprintf(outputWriter, "[Complete] Task %d marked as completed: %s\n", taskNum, task.Description)
+
+	// Show remaining tasks
+	if taskCount > 0 {
+		fmt.Fprintf(outputWriter, "\nRemaining tasks:\n")
+		littleguy.mutex.RLock()
+		for i, remainingTask := range littleguy.tasks {
+			fmt.Fprintf(outputWriter, "  %d) %s\n", i+1, remainingTask.Description)
+		}
+		littleguy.mutex.RUnlock()
+	} else {
+		fmt.Fprintf(outputWriter, "\nNo remaining tasks.\n")
+	}
 }
 
 // refreshTaskList manually triggers a task list refresh
 func refreshTaskList(littleguy *LittleGuy) {
-	color.Cyan("\n[Refresh] Refreshing task list from git changes...")
+	color.New(color.FgCyan).Fprintf(outputWriter, "\n[Refresh] Refreshing task list from git changes...\n")
 
 	// Directly call RefreshTaskListFromGitChanges with the conversation ID
 	err := RefreshTaskListFromGitChanges(littleguy.conversationID)
 	if err != nil {
-		color.Red("[X] Failed to refresh task list: %v", err)
+		color.New(color.FgRed).Fprintf(outputWriter, "[X] Failed to refresh task list: %v\n", err)
 		return
 	}
 
-	color.Green("[Refresh] Task list updated with latest changes")
+	color.New(color.FgGreen).Fprintf(outputWriter, "[Refresh] Task list updated with latest changes\n")
 }
 
 // displayCommandMenu shows available special commands for DCE
 func displayCommandMenu() {
-	color.Green("\n[Commands] Available DCE Commands:")
-	fmt.Println("  /task or /tasks        - Show the current task list (concise)")
-	fmt.Println("  /task verbose         - Show the task list with additional details")
-	fmt.Println("  /add <description>    - Add a new task to the task list")
-	fmt.Println("  /dce on               - Activate the Dynamic Context Engine")
-	fmt.Println("  /dce off              - Deactivate the Dynamic Context Engine")
-	fmt.Println("  /dce status           - Show DCE status and statistics")
-	fmt.Println("  /priority             - Show current task priorities")
-	fmt.Println("  /priority <num> <level> - Set task priority (low/medium/high)")
-	fmt.Println("  /complete <num>       - Mark a task as completed")
-	fmt.Println("  /refresh              - Manually refresh task list from git")
-	fmt.Println("  /status               - Show detailed DCE status")
-	fmt.Println("  /commands, /cmds, /help - Show this command menu")
+	color.New(color.FgGreen).Fprintf(outputWriter, "\n[Commands] Available DCE Commands:\n")
+	fmt.Fprint(outputWriter, "  /task or /tasks        - Show the current task list (concise)\n")
+	fmt.Fprint(outputWriter, "  /task verbose          - Show the task list with additional details\n")
+	fmt.Fprint(outputWriter, "  /add <description>     - Add a new task to the task list\n")
+	fmt.Fprint(outputWriter, "  /dce on                - Activate the Dynamic Context Engine\n")
+	fmt.Fprint(outputWriter, "  /dce off               - Deactivate the Dynamic Context Engine\n")
+	fmt.Fprint(outputWriter, "  /dce status            - Show DCE status and statistics\n")
+	fmt.Fprint(outputWriter, "  /priority              - Show current task priorities\n")
+	fmt.Fprint(outputWriter, "  /priority <num> <level>- Set task priority (low/medium/high)\n")
+	fmt.Fprint(outputWriter, "  /complete <num>        - Mark a task as completed\n")
+	fmt.Fprint(outputWriter, "  /refresh               - Manually refresh task list from git\n")
+	fmt.Fprint(outputWriter, "  /status                - Show detailed DCE status\n")
+	fmt.Fprint(outputWriter, "  /commands, /cmds, /help- Show this command menu\n")
 }

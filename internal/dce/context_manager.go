@@ -55,7 +55,7 @@ func (cm *DCEContextManager) ForEachContext(f func(string, *LittleGuy)) {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	// Make a copy of the contexts to iterate over
+	// Make a copy of the contexts map to iterate over
 	// This prevents potential issues if the map is modified during iteration
 	contextsCopy := make(map[string]*LittleGuy, len(cm.contexts))
 	for k, v := range cm.contexts {

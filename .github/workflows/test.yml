@@ -1,0 +1,93 @@
+# .github/workflows/test.yml
+name: Test
+
+on:
+  push:
+    branches: [ main, wrs/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+        cache: true
+    
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git config --global init.defaultBranch main
+    
+    - name: Download dependencies
+      run: go mod download
+    
+    # ========== DEBUG STEPS START HERE ==========
+    - name: Debug Environment
+      run: |
+        echo "=== Go Version ==="
+        go version
+        echo ""
+        echo "=== Go Modules ==="
+        go mod verify
+        echo ""
+        echo "=== Git Config ==="
+        git config --global --list
+        echo ""
+        echo "=== Current Directory ==="
+        pwd
+        echo ""
+        echo "=== Repository Root ==="
+        git rev-parse --show-toplevel
+        echo ""
+        echo "=== Files in Root ==="
+        ls -la
+        echo ""
+        echo "=== go.mod exists? ==="
+        if [ -f go.mod ]; then echo "YES"; cat go.mod; else echo "NO"; fi
+        echo ""
+        echo "=== go.sum exists? ==="
+        if [ -f go.sum ]; then echo "YES"; else echo "NO"; fi
+        echo ""
+        echo "=== Test Files ==="
+        ls -la test/dce/command_menu/
+        echo ""
+        echo "=== Git Status ==="
+        git status
+        echo ""
+        echo "=== Git Log (last 3 commits) ==="
+        git log --oneline -3
+    
+    - name: Debug Test Setup
+      run: |
+        echo "=== Testing Git Commands ==="
+        git rev-parse --show-toplevel
+        git rev-parse --abbrev-ref HEAD
+        git rev-parse HEAD
+        echo ""
+        echo "=== Testing Go Test Command ==="
+        go list ./test/dce/...
+    
+    # ========== DEBUG STEPS END HERE ==========
+    
+    - name: Run tests
+      run: |
+        echo "=== Running command_menu tests ==="
+        go test -v ./test/dce/command_menu/... 2>&1 | tee test_output.log
+        echo ""
+        echo "=== Running task_helper tests ==="
+        go test -v ./test/dce/task_helper/... 2>&1 | tee -a test_output.log
+    
+    - name: Upload test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs
+        path: test_output.log
