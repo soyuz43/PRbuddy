@@ -39,6 +39,8 @@ type Conversation struct {
 	LastActivity   time.Time
 	DiffTruncation bool
 	mutex          sync.RWMutex
+	// Removed DCEContext *dce.LittleGuy to break import cycle
+	IsActiveDCE bool // Track if DCE is active for this conversation
 }
 
 // ConversationManager manages multiple conversations.

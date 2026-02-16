@@ -103,9 +103,10 @@ func extractFunctionsFromFile(filePath, pattern string) []string {
 // RefreshTaskListFromGitChanges checks for unstaged and untracked changes and updates the task list if new files are detected.
 // It uses Git commands to detect changes.
 func RefreshTaskListFromGitChanges(conversationID string) error {
-	conversation, exists := contextpkg.ConversationManagerInstance.GetConversation(conversationID)
+	// Get the LittleGuy instance for this conversation
+	littleguy, exists := GetDCEContextManager().GetContext(conversationID)
 	if !exists {
-		return fmt.Errorf("no active conversation found")
+		return fmt.Errorf("no active DCE context found for conversation %s", conversationID)
 	}
 
 	// Retrieve unstaged changes.
@@ -134,9 +135,12 @@ func RefreshTaskListFromGitChanges(conversationID string) error {
 	}
 
 	// For each changed file, if it is not already represented in a task, add a new task.
+	littleguy.mutex.Lock()
+	defer littleguy.mutex.Unlock()
+
 	for _, changedFile := range validChangedFiles {
 		existsInTask := false
-		for _, task := range conversation.Tasks {
+		for _, task := range littleguy.tasks {
 			for _, file := range task.Files {
 				if file == changedFile {
 					existsInTask = true
@@ -154,7 +158,7 @@ func RefreshTaskListFromGitChanges(conversationID string) error {
 				Functions:   []string{}, // Optionally, extract functions from the file.
 				Notes:       []string{"Automatically added due to git changes."},
 			}
-			conversation.Tasks = append(conversation.Tasks, newTask)
+			littleguy.tasks = append(littleguy.tasks, newTask)
 			fmt.Printf("[TaskHelper] Added new task for file: %s\n", changedFile)
 		}
 	}
