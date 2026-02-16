@@ -34,7 +34,7 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		handleDCEControlCommand(trimmedInput[5:], littleguy)
 		return true
 
-	case lowerInput == "/commands", lowerInput == "/cmds":
+	case lowerInput == "/commands", lowerInput == "/cmds", lowerInput == "/help":
 		displayCommandMenu()
 		return true
 
@@ -290,5 +290,5 @@ func displayCommandMenu() {
 	fmt.Println("  /complete <num>       - Mark a task as completed")
 	fmt.Println("  /refresh              - Manually refresh task list from git")
 	fmt.Println("  /status               - Show detailed DCE status")
-	fmt.Println("  /commands             - Show this command menu")
+	fmt.Println("  /commands, /cmds, /help - Show this command menu")
 }
