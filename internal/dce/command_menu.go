@@ -30,6 +30,11 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 		displayTaskList(littleguy, true)
 		return true
 
+	// Handle /add command to add new tasks
+	case strings.HasPrefix(lowerInput, "/add "):
+		handleAddCommand(trimmedInput, littleguy)
+		return true
+
 	case strings.HasPrefix(lowerInput, "/dce "):
 		handleDCEControlCommand(trimmedInput[5:], littleguy)
 		return true
@@ -56,6 +61,50 @@ func HandleDCECommandMenu(input string, littleguy *LittleGuy) bool {
 
 	default:
 		return false
+	}
+}
+
+// handleAddCommand processes /add commands to add new tasks to the task list
+func handleAddCommand(input string, littleguy *LittleGuy) {
+	// Extract the task description after "/add"
+	taskDescription := strings.TrimSpace(input[5:])
+	if taskDescription == "" {
+		color.Red("[X] Please provide a task description after /add")
+		return
+	}
+
+	color.Cyan("\n[Add] Building task from description: %q", taskDescription)
+
+	// Build task list from the description
+	tasks, logs, err := BuildTaskList(taskDescription)
+	if err != nil {
+		color.Red("[X] Failed to build task list: %v", err)
+		return
+	}
+
+	// Log the build process
+	for _, logMsg := range logs {
+		fmt.Printf("[DCE] %s\n", logMsg)
+	}
+
+	// Add the new tasks to the current task list
+	littleguy.UpdateTaskList(tasks)
+
+	// Provide feedback
+	color.Green("\n[Add] Successfully added %d task(s) to the task list", len(tasks))
+
+	// Display the added tasks
+	for i, task := range tasks {
+		fmt.Printf("  %d) %s\n", i+1, task.Description)
+		if len(task.Files) > 0 {
+			fmt.Printf("     Files: %s\n", strings.Join(task.Files, ", "))
+		}
+		if len(task.Functions) > 0 {
+			fmt.Printf("     Functions: %s\n", strings.Join(task.Functions, ", "))
+		}
+		if len(task.Notes) > 0 {
+			fmt.Printf("     Notes: %s\n", strings.Join(task.Notes, "; "))
+		}
 	}
 }
 
@@ -282,6 +331,7 @@ func displayCommandMenu() {
 	color.Green("\n[Commands] Available DCE Commands:")
 	fmt.Println("  /task or /tasks        - Show the current task list (concise)")
 	fmt.Println("  /task verbose         - Show the task list with additional details")
+	fmt.Println("  /add <description>    - Add a new task to the task list")
 	fmt.Println("  /dce on               - Activate the Dynamic Context Engine")
 	fmt.Println("  /dce off              - Deactivate the Dynamic Context Engine")
 	fmt.Println("  /dce status           - Show DCE status and statistics")
