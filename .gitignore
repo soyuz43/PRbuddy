@@ -6,7 +6,6 @@
 *.exe
 cover.out
 test.out
-go.mod
 .DS_Store
 Thumbs.db
 .env
